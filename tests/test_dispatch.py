@@ -1,8 +1,10 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.testclient import TestClient
 
+from app.db.firestore import RUNS, FirestoreDB
 from tests.conftest import FakePublisherClient
 
 
@@ -242,3 +244,129 @@ def test_an_unknown_run_kind_is_refused(client: TestClient, agent: dict[str, Any
     )
 
     assert response.status_code == 422
+
+
+# --- client attribution (S8) ------------------------------------------------
+
+
+def test_dispatch_records_the_tenant_on_the_run(
+    client: TestClient, agent: dict[str, Any], template: dict[str, Any]
+) -> None:
+    """The whole of S8's first half.
+
+    `client_slug` was already REQUIRED on the dispatch request -- the engine
+    resolves a client's entire workspace from it -- and simply never reached the
+    run document. So every run in the system was unattributable to the tenant
+    that paid for it, while the value sat in the request that created it.
+    """
+
+    response = client.post(
+        f"/agents/{agent['id']}/jobs",
+        json={"client_slug": "geektime", "input": {"topic": "series A"}},
+    )
+    assert response.status_code == 202, response.text
+    run = response.json()["run"]
+    assert run["client_slug"] == "geektime"
+
+    stored = client.get(f"/agents/{agent['id']}/runs/{run['id']}")
+    assert stored.status_code == 200, stored.text
+    assert stored.json()["client_slug"] == "geektime"
+
+
+def test_a_registered_run_can_carry_a_tenant_but_is_not_forced_to(
+    client: TestClient, agent: dict[str, Any]
+) -> None:
+    # The register path is for callers that publish their own payload. Requiring
+    # the field would break them for no safety gain; omitting it costs
+    # attribution, which the schema says in as many words.
+    with_slug = client.post(
+        f"/agents/{agent['id']}/runs", json={"client_slug": "geektime"}
+    )
+    without = client.post(f"/agents/{agent['id']}/runs", json={})
+
+    assert with_slug.status_code == 201, with_slug.text
+    assert without.status_code == 201, without.text
+    assert with_slug.json()["client_slug"] == "geektime"
+    assert without.json()["client_slug"] is None
+
+
+def test_runs_are_listable_by_tenant_across_agents(
+    client: TestClient, agent: dict[str, Any]
+) -> None:
+    """The query the stored field exists for.
+
+    Storing `client_slug` without a tenant-scoped listing would be a column
+    nobody can search, and "which runs did we do for this client" would still
+    mean looping every agent.
+    """
+
+    other = client.post("/agents", json={"slug": "second-agent", "name": "Second"})
+    assert other.status_code == 201, other.text
+
+    for slug, agent_id in (
+        ("geektime", agent["id"]),
+        ("geektime", "second-agent"),
+        ("someone-else", agent["id"]),
+    ):
+        created = client.post(f"/agents/{agent_id}/runs", json={"client_slug": slug})
+        assert created.status_code == 201, created.text
+
+    listed = client.get("/clients/geektime/runs")
+
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert len(body["items"]) == 2
+    assert {r["agent_id"] for r in body["items"]} == {agent["id"], "second-agent"}
+    assert all(r["client_slug"] == "geektime" for r in body["items"])
+
+
+def test_an_agent_listing_can_be_narrowed_to_one_tenant(
+    client: TestClient, agent: dict[str, Any]
+) -> None:
+    for slug in ("geektime", "someone-else"):
+        client.post(f"/agents/{agent['id']}/runs", json={"client_slug": slug})
+
+    listed = client.get(f"/agents/{agent['id']}/runs?client_slug=geektime")
+
+    assert listed.status_code == 200, listed.text
+    items = listed.json()["items"]
+    assert len(items) == 1
+    assert items[0]["client_slug"] == "geektime"
+
+
+async def test_a_run_from_before_this_field_reads_null_rather_than_failing(
+    client: TestClient, agent: dict[str, Any], database: FirestoreDB
+) -> None:
+    """Every run document written before this change lacks the key entirely.
+
+    The field is forward-only: `_run_snapshot` never carried a tenant, so there
+    is nothing on this side to backfill from. A pre-S8 document therefore has to
+    read as `null` rather than 500 the listing -- which would hide every working
+    run behind it, the failure test_foreign_documents.py exists for.
+    """
+
+    now = datetime.now(UTC)
+    await database.document(RUNS, "legacy-run").set(
+        {
+            "agent_id": agent["id"],
+            "status": "dispatched",
+            "job_type": None,
+            "prompt_id": None,
+            "prompt_version": None,
+            "template_version_id": None,
+            "input_payload": {},
+            "output": None,
+            "error": None,
+            "pubsub_message_id": None,
+            "requested_by": None,
+            "completed_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+    listed = client.get(f"/agents/{agent['id']}/runs")
+
+    assert listed.status_code == 200, listed.text
+    legacy = next(r for r in listed.json()["items"] if r["id"] == "legacy-run")
+    assert legacy["client_slug"] is None

@@ -165,6 +165,10 @@ class DispatchService:
             # from them without copying bodies into every run document.
             input_payload=_run_snapshot(context, request),
             requested_by=request.requested_by,
+            # The one field that made a run unattributable. It was already on the
+            # request -- required there, because the engine resolves the whole
+            # workspace from it -- and simply never reached the document.
+            client_slug=request.client_slug,
         )
 
         try:

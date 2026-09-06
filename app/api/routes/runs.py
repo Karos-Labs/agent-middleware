@@ -33,6 +33,13 @@ from app.services.runs import RunService
 
 router = APIRouter(prefix="/agents/{agent_id}", tags=["runs & feedback"])
 
+#: Tenant-scoped rather than agent-scoped, so a run can be attributed to a
+#: client without knowing which agent produced it. Same module as the
+#: agent-scoped routes because it is the same collection and the same
+#: service; a second router only because the path prefix differs -- the
+#: arrangement templates.py already uses.
+client_router = APIRouter(prefix="/clients", tags=["runs & feedback"])
+
 
 # --- Runs ------------------------------------------------------------------
 
@@ -67,11 +74,18 @@ async def register_run(
 async def list_runs(
     page: Pagination = Depends(pagination),
     run_status: Annotated[RunStatus | None, Query(alias="status")] = None,
+    client_slug: Annotated[
+        str | None, Query(description="Only this tenant's runs of this agent")
+    ] = None,
     agent: dict[str, Any] = Depends(resolve_agent),
     runs: RunService = Depends(get_run_service),
 ) -> Page[RunRead]:
     items, has_more = await runs.list_for_agent(
-        agent["id"], status=run_status, limit=page.limit, offset=page.offset
+        agent["id"],
+        status=run_status,
+        client_slug=client_slug,
+        limit=page.limit,
+        offset=page.offset,
     )
     return Page[RunRead](
         items=parse_rows(RunRead, items, collection="agent_runs"),
@@ -236,3 +250,29 @@ async def promote_feedback(
 ) -> FewShotExampleRead:
     example = await feedback.promote(agent["id"], feedback_id, payload)
     return FewShotExampleRead.model_validate(example)
+
+
+@client_router.get(
+    "/{client_slug}/runs",
+    response_model=Page[RunRead],
+    summary="Every run for one tenant, across all agents",
+    description=(
+        "Runs dispatched before `client_slug` was stored are absent from this listing and "
+        "cannot be recovered: nothing else on a run document names a tenant."
+    ),
+)
+async def list_client_runs(
+    client_slug: str,
+    page: Pagination = Depends(pagination),
+    run_status: Annotated[RunStatus | None, Query(alias="status")] = None,
+    runs: RunService = Depends(get_run_service),
+) -> Page[RunRead]:
+    items, has_more = await runs.list_for_client(
+        client_slug, status=run_status, limit=page.limit, offset=page.offset
+    )
+    return Page[RunRead](
+        items=parse_rows(RunRead, items, collection="agent_runs"),
+        limit=page.limit,
+        offset=page.offset,
+        has_more=has_more,
+    )
