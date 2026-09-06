@@ -36,38 +36,6 @@ pytestmark = requires_postgres
 # --- Fixtures ---------------------------------------------------------------
 
 
-@pytest.fixture
-async def api(
-    settings: Settings,
-    database: FirestoreDB,
-    publisher_service: PublisherService,
-    config_database: ConfigDatabase,
-) -> AsyncIterator[AsyncClient]:
-    """The real app, with the real Postgres wired in.
-
-    An httpx AsyncClient rather than TestClient: TestClient runs the app on its
-    own event loop, and the asyncpg pool belongs to the test's loop. Sharing a
-    connection across loops is the kind of failure that shows up as an
-    unrelated timeout three tests later.
-    """
-
-    app = create_app()
-
-    @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        build_services(
-            app, settings, database, publisher=publisher_service,
-            config_database=config_database,
-        )
-        yield
-
-    app.router.lifespan_context = lifespan
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        async with app.router.lifespan_context(app):
-            yield client
-
-
 async def seed_reference_data(db: ConfigDatabase) -> None:
     """A priced model, two tools, and one of them granted to the drafting class."""
 

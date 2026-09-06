@@ -25,12 +25,19 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
+from app.config import Settings
+from app.db.firestore import FirestoreDB
 from app.db.postgres import ConfigDatabase as _ConfigDatabase
+from app.main import build_services, create_app
+from app.services.publisher import PublisherService
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 REQUIRED = ("0001_config_plane.sql", "0002_reference_data.sql")
@@ -140,3 +147,35 @@ async def config_database(migrated_dsn: str) -> AsyncIterator[Any]:
         yield database
     finally:
         await pool.close()
+
+
+@pytest.fixture
+async def api(
+    settings: Settings,
+    database: FirestoreDB,
+    publisher_service: PublisherService,
+    config_database: _ConfigDatabase,
+) -> AsyncIterator[AsyncClient]:
+    """The real app, with the real Postgres wired in.
+
+    An httpx AsyncClient rather than TestClient: TestClient runs the app on its
+    own event loop, and the asyncpg pool belongs to the test's loop. Sharing a
+    connection across loops is the kind of failure that shows up as an
+    unrelated timeout three tests later.
+    """
+
+    app = create_app()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        build_services(
+            app, settings, database, publisher=publisher_service,
+            config_database=config_database,
+        )
+        yield
+
+    app.router.lifespan_context = lifespan
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with app.router.lifespan_context(app):
+            yield client

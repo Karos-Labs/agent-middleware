@@ -67,6 +67,7 @@ from app.services.prompt_store import UnifiedPromptStore
 from app.services.prompts import PromptService
 from app.services.publisher import PublisherService
 from app.services.runs import RunService
+from app.services.snapshot import SnapshotResolver, SnapshotTransport
 from app.services.templates import TemplateService
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,12 @@ def build_services(
     model_service = ModelService(database)
     run_service = RunService(database)
     context_service = ContextService(settings, agent_service, prompt_service, template_service)
+    # None until Cloud SQL exists (S1). A dispatch with no resolver publishes
+    # exactly what it published before and records `config_source: "stores"`,
+    # so the snapshot arriving is a change in what the message CARRIES, never a
+    # change in whether the message goes out.
+    snapshot_resolver = SnapshotResolver(config_database) if config_database is not None else None
+    snapshot_transport = SnapshotTransport(workspace)
 
     app.state.settings = settings
     app.state.db = database
@@ -121,8 +128,16 @@ def build_services(
     app.state.feedback_service = FeedbackService(database, run_service, prompt_service)
     app.state.context_service = context_service
     app.state.dispatch_service = DispatchService(
-        settings, context_service, run_service, publisher, model_service
+        settings,
+        context_service,
+        run_service,
+        publisher,
+        model_service,
+        snapshots=snapshot_resolver,
+        transport=snapshot_transport,
     )
+    app.state.snapshot_resolver = snapshot_resolver
+    app.state.snapshot_transport = snapshot_transport
     app.state.config_database = config_database
     app.state.prompt_store = prompt_store
     app.state.configuration_service = (

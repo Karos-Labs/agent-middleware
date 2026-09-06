@@ -74,8 +74,33 @@ def test_run_snapshot_references_versions_instead_of_copying_bodies(
         "example_count": 0,
         "template_id": template["id"],
         "template_version": 1,
+        # No configuration database is wired here, so the engine will fall back
+        # to its own stores. Recorded rather than omitted: a run that fell back
+        # has no answer to "which configuration produced this", and a missing
+        # key would read as "not implemented yet" long after it was.
+        "config_source": "stores",
     }
     assert run["template_version_id"] is not None
+
+
+def test_a_dispatch_without_a_configuration_plane_carries_no_snapshot(
+    client: TestClient, agent: dict[str, Any], fake_publisher_client: FakePublisherClient
+) -> None:
+    """S6's fallback, asserted at the wire.
+
+    The snapshot arriving is a change in what the message CARRIES, never a
+    change in whether the message goes out. Until S1 has Cloud SQL in an
+    environment, that environment dispatches exactly what it dispatched before.
+    """
+
+    client.post(f"/agents/{agent['id']}/jobs", json={"client_slug": "acme", "input": {}})
+
+    _, data, _ = fake_publisher_client.published[0]
+    payload = json.loads(data.decode("utf-8"))
+
+    assert "snapshot" not in payload
+    assert "snapshotUri" not in payload
+    assert "snapshotId" not in payload
 
 
 def test_caller_supplied_run_id_is_used(client: TestClient, agent: dict[str, Any]) -> None:

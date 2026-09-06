@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorkspaceStore(Protocol):
-    """The two operations the projection needs.
+    """The operations the projection and the snapshot offload need.
 
     A protocol rather than a base class so the test suite's in-memory store is
     not a subclass of anything -- the same arrangement ``FirestoreDB`` and the
@@ -47,6 +47,25 @@ class WorkspaceStore(Protocol):
 
     def write_text(self, path: str, body: str) -> None:
         """Create or replace the object at ``path``."""
+        ...
+
+    def write_bytes(self, path: str, body: bytes, content_type: str = ...) -> None:
+        """Create or replace a binary object.
+
+        Added for S6: an offloaded ExecutionSnapshot is gzipped, and putting
+        compressed bytes through a text write would mean encoding them into a
+        string first -- which is a copy and a decoding question nobody wants to
+        answer at 2am.
+        """
+        ...
+
+    def uri_for(self, path: str) -> str:
+        """The ``gs://`` URI a consumer is handed for ``path``.
+
+        Built here rather than by the caller so the bucket name lives in one
+        place. A snapshot's URI travels to another repository, and a URI
+        assembled at the call site is a bucket name assembled at the call site.
+        """
         ...
 
 
@@ -81,6 +100,16 @@ class GcsWorkspaceStore:
         self._resolve_bucket().blob(path).upload_from_string(
             body, content_type="application/json"
         )
+
+    def write_bytes(
+        self, path: str, body: bytes, content_type: str = "application/gzip"
+    ) -> None:
+        self._resolve_bucket().blob(path).upload_from_string(
+            body, content_type=content_type
+        )
+
+    def uri_for(self, path: str) -> str:
+        return f"gs://{self._bucket_name}/{path}"
 
 
 def build_workspace_store(settings: Settings) -> WorkspaceStore | None:

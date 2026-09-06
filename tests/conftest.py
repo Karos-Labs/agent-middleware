@@ -36,6 +36,7 @@ class FakeWorkspaceStore:
 
     def __init__(self) -> None:
         self.objects: dict[str, str] = {}
+        self.blobs: dict[str, bytes] = {}
         self.writes: list[str] = []
 
     def read_text(self, path: str) -> str | None:
@@ -44,6 +45,13 @@ class FakeWorkspaceStore:
     def write_text(self, path: str, body: str) -> None:
         self.objects[path] = body
         self.writes.append(path)
+
+    def write_bytes(self, path: str, body: bytes, content_type: str = "application/gzip") -> None:
+        self.blobs[path] = body
+        self.writes.append(path)
+
+    def uri_for(self, path: str) -> str:
+        return f"gs://test-artifacts/{path}"
 
 
 class FakePublisherClient:
