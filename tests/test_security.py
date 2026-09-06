@@ -574,6 +574,12 @@ def test_destructive_routes_require_admin() -> None:
         # price, so a row here reroutes or reprices work across all agents.
         "POST /models",
         "PATCH /models/{model_id}",
+        # Repointing an alias changes what every stage naming it runs on, at
+        # once, with no code change -- which is the point of an alias and the
+        # reason it is admin. Lost when the S12/S4 merge conflict in this list
+        # was resolved by keeping one side, which is what made CI red on
+        # dev-shlomi.
+        "PUT /models/aliases/{alias}",
         # Publishing and rolling back change what every client of an agent gets
         # on their next run, immediately, with no review step in between. That
         # is a different act from editing a draft (editor), and the ladder
