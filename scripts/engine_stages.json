@@ -39,7 +39,7 @@
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "blog-craft@1"
+      "skill_ref": "blog-craft@3"
     },
     {
       "id": "10-verify-numbers-sourced",
@@ -63,7 +63,9 @@
     },
     {
       "id": "15-batch-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "16-persist-deliverable",
@@ -139,7 +141,9 @@
     },
     {
       "id": "10-delivery-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "branded_shorts_delivery_review"
     },
     {
       "id": "10a-upload-to-gcs",
@@ -218,7 +222,9 @@
     },
     {
       "id": "13-campaign-review",
-      "kind": "gate"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "campaign_review"
     },
     {
       "id": "14-persist-campaign-bundle",
@@ -243,6 +249,14 @@
       "kind": "code"
     },
     {
+      "id": "02b-load-client-voice-context",
+      "kind": "code"
+    },
+    {
+      "id": "02c-load-brand-kit",
+      "kind": "code"
+    },
+    {
       "id": "03-claim-topic",
       "kind": "code"
     },
@@ -256,9 +270,16 @@
       "skill_ref": "instagram-research@1"
     },
     {
+      "id": "04c-resolve-templates",
+      "kind": "code"
+    },
+    {
+      "id": "04d-read-past-feedback",
+      "kind": "code"
+    },
+    {
       "id": "05-write-copy",
-      "kind": "agent",
-      "skill_ref": "instagram-copy@3"
+      "kind": "agent"
     },
     {
       "id": "05a-list-used-images",
@@ -269,12 +290,24 @@
       "kind": "code"
     },
     {
+      "id": "05z-attach-user-media",
+      "kind": "code"
+    },
+    {
       "id": "06-vet-images",
       "kind": "agent",
-      "skill_ref": "instagram-image-vet@1"
+      "skill_ref": "instagram-image-vet@2"
+    },
+    {
+      "id": "06f-verify-images-on-disk",
+      "kind": "code"
     },
     {
       "id": "07-self-check",
+      "kind": "code"
+    },
+    {
+      "id": "07a-downgrade-unfillable-slides",
       "kind": "code"
     },
     {
@@ -290,16 +323,50 @@
       "kind": "code"
     },
     {
+      "id": "08-render-carousel-typographic",
+      "kind": "code"
+    },
+    {
+      "id": "08a-render-fallback-typographic",
+      "kind": "code"
+    },
+    {
       "id": "08b-visual-qa",
       "kind": "agent",
       "skill_ref": "instagram-visual-qa@1"
     },
     {
       "id": "09a-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
+      "id": "09a-record-feedback-r",
+      "kind": "code"
+    },
+    {
+      "id": "09a-template-feedback-r",
       "kind": "code"
     },
     {
       "id": "09b-deliver-and-log",
+      "kind": "code"
+    },
+    {
+      "id": "09c-apply-review-edits",
+      "kind": "code"
+    },
+    {
+      "id": "09d-render-edited-carousel",
+      "kind": "code"
+    },
+    {
+      "id": "09d2-record-edits-not-applied",
+      "kind": "code"
+    },
+    {
+      "id": "09e-record-edit-feedback",
       "kind": "code"
     },
     {
@@ -331,7 +398,9 @@
     },
     {
       "id": "04-batch-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "05-persist-report",
@@ -405,7 +474,9 @@
     },
     {
       "id": "08-human-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "landing_craft_review"
     },
     {
       "id": "08a-restore-site-bundle",
@@ -433,6 +504,10 @@
     }
   ],
   "linkedin-agent": [
+    {
+      "id": "00-channel-setup",
+      "kind": "code"
+    },
     {
       "id": "00-intake-check",
       "kind": "code"
@@ -472,7 +547,7 @@
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "linkedin-craft@2"
+      "skill_ref": "linkedin-craft@4"
     },
     {
       "id": "10-verify-numbers-sourced",
@@ -496,7 +571,9 @@
     },
     {
       "id": "15-batch-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "16-persist-deliverable",
@@ -516,20 +593,6 @@
     },
     {
       "id": "guardrail-verify-load-topics",
-      "kind": "code"
-    }
-  ],
-  "linkedin-setup-agent": [
-    {
-      "id": "00-parse-intake",
-      "kind": "code"
-    },
-    {
-      "id": "01-save-company-direction",
-      "kind": "code"
-    },
-    {
-      "id": "02-save-seat",
       "kind": "code"
     }
   ],
@@ -573,7 +636,7 @@
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "newsletter-craft@1"
+      "skill_ref": "newsletter-craft@3"
     },
     {
       "id": "10-verify-brand-compliance",
@@ -601,7 +664,9 @@
     },
     {
       "id": "16-batch-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "17-persist-deliverable",
@@ -625,6 +690,10 @@
     }
   ],
   "reddit-agent": [
+    {
+      "id": "00-channel-setup",
+      "kind": "code"
+    },
     {
       "id": "00-intake-check",
       "kind": "code"
@@ -676,7 +745,7 @@
     {
       "id": "12-draft-reply",
       "kind": "agent",
-      "skill_ref": "reddit-craft@2"
+      "skill_ref": "reddit-craft@4"
     },
     {
       "id": "13-verify-numbers-sourced",
@@ -700,7 +769,9 @@
     },
     {
       "id": "18-batch-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "19-persist-deliverable",
@@ -720,16 +791,6 @@
     },
     {
       "id": "guardrail-verify-load-topics",
-      "kind": "code"
-    }
-  ],
-  "reddit-setup-agent": [
-    {
-      "id": "00-parse-intake",
-      "kind": "code"
-    },
-    {
-      "id": "01-save-reddit-config",
       "kind": "code"
     }
   ],
@@ -785,7 +846,9 @@
     },
     {
       "id": "10-reputation-approve-all",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "reputation_approve_all"
     },
     {
       "id": "10b-release-claims-on-hold",
@@ -824,7 +887,9 @@
     },
     {
       "id": "03-prompt-set-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "prompt_set_review"
     },
     {
       "id": "04-freeze-prompt-set",
@@ -852,7 +917,9 @@
     },
     {
       "id": "12-fix-generation-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "fix_generation_review"
     },
     {
       "id": "13-draft-fixes",
@@ -891,7 +958,11 @@
       "kind": "code"
     },
     {
-      "id": "01-reserve-source",
+      "id": "01-claim-topic",
+      "kind": "code"
+    },
+    {
+      "id": "01b-resolve-source",
       "kind": "code"
     },
     {
@@ -912,20 +983,20 @@
       "kind": "code"
     },
     {
-      "id": "05-cut-gate",
-      "kind": "code"
-    },
-    {
       "id": "06-commentary",
       "kind": "code"
     },
     {
       "id": "06a-commentary",
       "kind": "agent",
-      "skill_ref": "tiktok-commentary@1"
+      "skill_ref": "tiktok-commentary@2"
     },
     {
       "id": "07-compliance",
+      "kind": "code"
+    },
+    {
+      "id": "07b-load-video-brand",
       "kind": "code"
     },
     {
@@ -937,8 +1008,14 @@
       "kind": "code"
     },
     {
-      "id": "11-clip-review",
+      "id": "10a-upload-clip",
       "kind": "code"
+    },
+    {
+      "id": "11-clip-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "12-persist-deliverable",
@@ -1001,7 +1078,7 @@
     {
       "id": "10-draft-post",
       "kind": "agent",
-      "skill_ref": "x-craft@2"
+      "skill_ref": "x-craft@4"
     },
     {
       "id": "11-verify-numbers-sourced",
@@ -1020,16 +1097,18 @@
       "kind": "code"
     },
     {
+      "id": "14c-verify-no-placeholder",
+      "kind": "code"
+    },
+    {
+      "id": "14d-verify-no-leak",
+      "kind": "code"
+    },
+    {
       "id": "15-batch-review",
-      "kind": "code"
-    },
-    {
-      "id": "16-verify-no-placeholder",
-      "kind": "code"
-    },
-    {
-      "id": "17-verify-no-leak",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "18-persist-deliverable",

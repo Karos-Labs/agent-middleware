@@ -157,13 +157,29 @@ def _full_agent_payload() -> dict[str, Any]:
                 "id": "01-draft",
                 "label": "Draft",
                 "description": "Write the post",
-                "is_gate": False,
-                "kind": "agent",
+                # A gate stage, so is_gate and gate_kind are both non-default
+                # too: a stage recorded as ordinary code when it actually waits
+                # for a person is the bug the generator fix removes, and this
+                # is the round trip that proves the fields survive a create.
+                "is_gate": True,
+                "gate_kind": "batch_review",
+                "kind": "gate",
                 "skill_ref": "x-draft@3",
                 "model_id": None,
             }
         ],
         "stages_read_only": False,
+        # --- C4 descriptor fields ---
+        "capabilities": ["draft_social_post"],
+        "platforms": ["x"],
+        "consumes_media": True,
+        "supports_target_date": True,
+        "custom_agent_keys": ["karos-x-agent-v2"],
+        "gates": ["batch_review"],
+        "readiness": {
+            "hard": ["client/profile", "client/config:xHandle"],
+            "soft": ["topics/catalog"],
+        },
     }
 
 
