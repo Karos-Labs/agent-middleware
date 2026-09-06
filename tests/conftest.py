@@ -24,6 +24,28 @@ from app.services.publisher import PublisherService
 from tests.fake_firestore import FakeFirestoreClient
 
 
+class FakeWorkspaceStore:
+    """In-memory stand-in for the agent-engine workspace bucket.
+
+    Same arrangement as the Pub/Sub and Firestore fakes: the suite needs no
+    credentials, no emulator and no network. ``writes`` counts calls rather than
+    just recording the final state, because the property that matters for the
+    projection is IDEMPOTENCE -- and a store that only remembered the last value
+    could not tell a no-op from a rewrite with identical content.
+    """
+
+    def __init__(self) -> None:
+        self.objects: dict[str, str] = {}
+        self.writes: list[str] = []
+
+    def read_text(self, path: str) -> str | None:
+        return self.objects.get(path)
+
+    def write_text(self, path: str, body: str) -> None:
+        self.objects[path] = body
+        self.writes.append(path)
+
+
 class FakePublisherClient:
     """Minimal stand-in for ``google.cloud.pubsub_v1.PublisherClient``."""
 
@@ -69,6 +91,11 @@ def fake_firestore_client() -> FakeFirestoreClient:
 
 
 @pytest.fixture
+def fake_workspace() -> FakeWorkspaceStore:
+    return FakeWorkspaceStore()
+
+
+@pytest.fixture
 def publisher_service(
     settings: Settings, fake_publisher_client: FakePublisherClient
 ) -> PublisherService:
@@ -82,7 +109,10 @@ def database(settings: Settings, fake_firestore_client: FakeFirestoreClient) -> 
 
 @pytest.fixture
 def client(
-    settings: Settings, database: FirestoreDB, publisher_service: PublisherService
+    settings: Settings,
+    database: FirestoreDB,
+    publisher_service: PublisherService,
+    fake_workspace: FakeWorkspaceStore,
 ) -> Iterator[TestClient]:
     """A TestClient whose services are wired to the in-memory backends.
 
@@ -91,18 +121,23 @@ def client(
     """
 
     app = create_app()
-    app.router.lifespan_context = _fake_lifespan(settings, database, publisher_service)
+    app.router.lifespan_context = _fake_lifespan(
+        settings, database, publisher_service, fake_workspace
+    )
 
     with TestClient(app) as test_client:
         yield test_client
 
 
 def _fake_lifespan(
-    settings: Settings, database: FirestoreDB, publisher: PublisherService
+    settings: Settings,
+    database: FirestoreDB,
+    publisher: PublisherService,
+    workspace: Any = None,
 ) -> Any:
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
-        build_services(app, settings, database, publisher=publisher)
+        build_services(app, settings, database, publisher=publisher, workspace=workspace)
         yield
 
     return lifespan

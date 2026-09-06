@@ -515,9 +515,15 @@ def test_every_protected_router_carries_identity_and_a_read_floor() -> None:
     # Exactly one unauthenticated router: health. Cloud Run's probes carry no
     # identity token, and it exposes only reachability booleans.
     assert len(open_routers) == 1
-    # 9th: the tenant-scoped run listing added with client_slug (S8).
-    # 10th: the Configuration API (S4).
-    assert len(protected_routers) == 10
+    # Counted rather than merely non-zero, so ADDING a router is a decision
+    # somebody makes here on purpose. It has already earned that: the clients
+    # router (S-A15) failed this test on the way in, which is the moment to
+    # confirm a new surface is authenticated rather than the moment after.
+    #
+    #   9th  the tenant-scoped run listing (S8)
+    #  10th  the client re-seed control plane (S-A15)
+    #  11th  the Configuration API (S4)
+    assert len(protected_routers) == 11
 
 
 def test_no_mutating_route_sits_at_the_read_floor() -> None:
