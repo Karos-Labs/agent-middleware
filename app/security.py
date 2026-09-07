@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import Depends, Request, status
@@ -38,6 +39,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
+from app.core.roles import Role
 from app.dependencies import get_settings_dep
 
 logger = logging.getLogger(__name__)
@@ -48,18 +50,50 @@ _bearer = HTTPBearer(auto_error=False, description="Google OIDC identity token")
 
 
 class CallerIdentity:
-    """Who made the request, once authenticated."""
+    """Who made the request, once authenticated, and what they may do."""
 
-    def __init__(self, *, subject: str, email: str | None, method: str) -> None:
+    def __init__(
+        self,
+        *,
+        subject: str,
+        email: str | None,
+        method: str,
+        role: Role = Role.VIEWER,
+    ) -> None:
         self.subject = subject
         self.email = email
         self.method = method
+        self.role = role
+
+    @property
+    def actor(self) -> str:
+        """The audit-trail name for this caller.
+
+        Read off the verified token, never off the request body or query
+        string. Before this existed, ``created_by`` and ``?actor=`` were free
+        text supplied by the caller and compared against nothing -- so the
+        audit log for a prompt edit recorded whatever the editor typed, which
+        is a log that cannot be wrong and therefore cannot be evidence.
+        """
+
+        return self.email or self.subject
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"CallerIdentity(subject={self.subject!r}, method={self.method!r})"
+        return (
+            f"CallerIdentity(subject={self.subject!r}, method={self.method!r}, "
+            f"role={self.role.value!r})"
+        )
 
 
-ANONYMOUS = CallerIdentity(subject="anonymous", email=None, method="disabled")
+#: The identity used when ``auth_enabled`` is false. It holds ``admin`` on
+#: purpose: with authentication off there is no principal to bind a role to,
+#: and enforcing roles against an unauthenticated caller would be a check that
+#: looks like security and is not. Turning authentication ON is what turns
+#: authorization on, in one step, which is also what makes this change inert
+#: until then.
+ANONYMOUS = CallerIdentity(
+    subject="anonymous", email=None, method="disabled", role=Role.ADMIN
+)
 
 
 def _unauthorized(detail: str) -> HTTPException:
@@ -112,7 +146,12 @@ async def require_service_identity(
         # common prefix through timing.
         assert settings.auth_dev_token is not None  # narrowed by dev_token_permitted
         if hmac.compare_digest(token, settings.auth_dev_token):
-            identity = CallerIdentity(subject="dev-token", email=None, method="dev_token")
+            identity = CallerIdentity(
+                subject="dev-token",
+                email=None,
+                method="dev_token",
+                role=settings.role_for("dev-token"),
+            )
             request.state.caller = identity
             return identity
         # Fall through: a non-matching token may still be a real OIDC token.
@@ -145,8 +184,46 @@ async def require_service_identity(
             detail="Caller is not authorized to use this service.",
         )
 
+    subject = str(claims.get("sub", "unknown"))
     identity = CallerIdentity(
-        subject=str(claims.get("sub", "unknown")), email=email, method="oidc"
+        subject=subject,
+        email=email,
+        method="oidc",
+        role=settings.role_for(email or subject),
     )
     request.state.caller = identity
     return identity
+
+
+def require_role(minimum: Role) -> Callable[..., Awaitable[CallerIdentity]]:
+    """Dependency factory: refuse a caller whose role is below ``minimum``.
+
+    A route names the minimum it needs and nothing else. FastAPI resolves
+    ``require_service_identity`` once per request and caches it, so the token
+    is verified once however many of these a request passes through.
+
+    The 403 names the principal and both roles. A missing binding is the most
+    likely cause of a refusal here and it is invisible from the client side --
+    "forbidden" with no principal sends someone reading the wrong config file.
+    """
+
+    async def dependency(
+        identity: CallerIdentity = Depends(require_service_identity),
+    ) -> CallerIdentity:
+        if not identity.role.satisfies(minimum):
+            logger.warning(
+                "Refused %s (role %s) on a route requiring %s",
+                identity.actor,
+                identity.role.value,
+                minimum.value,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"caller '{identity.actor}' holds role '{identity.role.value}'; "
+                    f"this operation requires '{minimum.value}' or higher"
+                ),
+            )
+        return identity
+
+    return dependency

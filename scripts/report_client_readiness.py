@@ -100,7 +100,20 @@ HUMAN_DECISION = "a person: this is an identity or a rights decision, not a deri
 ONBOARDING = "the one-time per-client onboarding workflow for this product"
 
 #: Every routed engine product, and what it needs in the workspace before it
-#: can produce anything. Derived from each agent's own intake steps, not
+#: can produce anything.
+#:
+#: ``linkedin-setup-agent`` and ``reddit-setup-agent`` were removed here when
+#: their workflow was inlined into each parent as its ``00-channel-setup``
+#: pre-flight and they were retired from the catalog. Their requirements did
+#: not vanish -- they moved into the parents, which is why
+#: ``strategy/linkedin-agent`` is still listed under ``linkedin-agent``.
+#:
+#: They were worse than stale. Both were declared with NO requirements, so
+#: ``gaps_for`` returned nothing for them and every client scored two free
+#: `ready` products -- two agents that could not fail because they could not
+#: run, counted in the numerator AND the denominator of "N/M client-agent pairs
+#: can run today". The headline number was reading better than reality by two
+#: per client. Derived from each agent's own intake steps, not
 #: guessed -- the `client.*` calls and `WorkflowBlockedIntake` messages in
 #: `agents/<name>/src/workflow/`.
 AGENT_REQUIREMENTS: dict[str, tuple[Requirement, ...]] = {
@@ -179,8 +192,6 @@ AGENT_REQUIREMENTS: dict[str, tuple[Requirement, ...]] = {
         ),
         TOPICS,
     ),
-    "linkedin-setup-agent": (),
-    "reddit-setup-agent": (),
 }
 
 
@@ -208,6 +219,34 @@ def load_client(storage: Any, bucket_name: str, slug: str) -> ClientState:
             state.config = {}
         state.placeholder = bool(state.config.get("_placeholder"))
     return state
+
+
+def readiness_paths(agent: str) -> tuple[list[str], list[str]]:
+    """This agent's requirements as flat path strings, hard and soft.
+
+    Exported so ``seed_all_agents.py`` can put ``readiness`` on the C4
+    descriptor without retyping the table. One source, two consumers: a second
+    copy would drift, and the copy that drifted would be the one a planner uses
+    to tell a client whether they can have a post today.
+
+    A config key renders as ``client/config:xHandle`` -- close to the shape the
+    report prints, so a reader comparing the two sees the same strings.
+    """
+
+    hard: list[str] = []
+    soft: list[str] = []
+    for req in AGENT_REQUIREMENTS[agent]:
+        names = (
+            [f"client/config:{key}" for key in req.keys]
+            if req.path == "client/config"
+            else [req.path]
+        )
+        (soft if req.soft else hard).extend(names)
+    unique_hard = list(dict.fromkeys(hard))
+    # A path that is hard for one requirement and soft for another is hard:
+    # topics/catalog is soft for five agents and hard for two, and an agent
+    # holding both should not advertise it as merely degrading.
+    return unique_hard, [p for p in dict.fromkeys(soft) if p not in unique_hard]
 
 
 def gaps_for(state: ClientState, agent: str) -> tuple[list[str], list[str]]:

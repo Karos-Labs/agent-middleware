@@ -30,6 +30,16 @@ class RunCreate(BaseModel):
     input_payload: dict[str, Any] = Field(default_factory=dict)
     pubsub_message_id: str | None = Field(default=None, max_length=128)
     requested_by: str | None = Field(default=None, max_length=255)
+    client_slug: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Tenant this run belongs to. Optional here and required on dispatch: a "
+            "caller that publishes its own payload already knows the client, but "
+            "omitting it makes the run permanently unattributable -- nothing else "
+            "on the document names a tenant."
+        ),
+    )
 
 
 class RunUpdate(BaseModel):
@@ -89,6 +99,10 @@ class RunRead(BaseModel):
     error: str | None
     pubsub_message_id: str | None
     requested_by: str | None
+    #: Null on every run dispatched before this field existed. Not backfillable:
+    #: the run document's snapshot never carried a tenant, so there is nothing
+    #: to recover it from on this side.
+    client_slug: str | None = None
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime

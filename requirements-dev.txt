@@ -4,3 +4,9 @@ pytest-asyncio>=0.23,<1.0
 httpx>=0.27,<1.0
 ruff>=0.5,<1.0
 mypy>=1.10,<2.0
+# A real PostgreSQL 16, shipped as a wheel. The configuration schema's whole
+# value is that the database refuses things (immutability triggers, composite
+# foreign keys, default-deny policy), and none of that is exercised by a fake.
+# Tests that need it skip with a reason when it is unavailable, so a CI image
+# without it fails loudly on the skip count rather than silently passing.
+pgserver>=0.1.4

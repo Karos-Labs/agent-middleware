@@ -50,3 +50,14 @@ jobs:
       # real break even though nothing serves it.
       - name: Type-check
         run: mypy app scripts
+
+      # AU52. A one-time inventory is accurate for one afternoon, so this runs
+      # on every commit. It fails on a variable the code reads and .env.example
+      # does not document, on a substitution a workflow passes that
+      # cloudbuild.yaml never declares, and on prep and prod being wired from
+      # different variable sets. It only WARNS on wired-but-unread: every
+      # variable here is read through a pydantic field rather than by name, so
+      # absence of evidence is not evidence of absence, and this must never
+      # become a deletion list.
+      - name: Config inventory
+        run: python scripts/config_inventory.py --check

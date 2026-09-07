@@ -65,6 +65,12 @@
       "kind": "code"
     },
     {
+      "id": "15-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
       "id": "18-commit-and-record",
       "kind": "code"
     },
@@ -163,7 +169,9 @@
     },
     {
       "id": "10-delivery-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "branded_shorts_delivery_review"
     },
     {
       "id": "10a-upload-to-gcs",
@@ -240,7 +248,9 @@
     },
     {
       "id": "13-campaign-review",
-      "kind": "gate"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "campaign_review"
     },
     {
       "id": "14-persist-campaign-bundle",
@@ -432,6 +442,12 @@
       "vendor": "gemini"
     },
     {
+      "id": "09a-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
       "id": "09a-record-feedback-r",
       "kind": "code"
     },
@@ -504,6 +520,12 @@
       "kind": "code"
     },
     {
+      "id": "04-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
       "id": "05-persist-report",
       "kind": "code"
     }
@@ -556,6 +578,12 @@
       "agent_id": "landing-craft-verdict",
       "default_model": "claude-opus-4-8",
       "vendor": "anthropic"
+    },
+    {
+      "id": "08-human-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "landing_craft_review"
     },
     {
       "id": "09-fix",
@@ -675,6 +703,12 @@
       "kind": "code"
     },
     {
+      "id": "15-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
       "id": "18-commit-and-record",
       "kind": "code"
     },
@@ -782,6 +816,12 @@
       "agent_id": "newsletter-editor",
       "default_model": "claude-opus-4-8",
       "vendor": "anthropic"
+    },
+    {
+      "id": "16-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "17a-render-email",
@@ -901,6 +941,12 @@
       "kind": "code"
     },
     {
+      "id": "18-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
       "id": "21-commit-and-record",
       "kind": "code"
     },
@@ -975,7 +1021,9 @@
     },
     {
       "id": "10-reputation-approve-all",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "reputation_approve_all"
     },
     {
       "id": "10b-release-claims-on-hold",
@@ -1020,7 +1068,9 @@
     },
     {
       "id": "03-prompt-set-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "prompt_set_review"
     },
     {
       "id": "04-freeze-prompt-set",
@@ -1048,7 +1098,9 @@
     },
     {
       "id": "12-fix-generation-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "fix_generation_review"
     },
     {
       "id": "13-draft-fixes",
@@ -1185,6 +1237,12 @@
       "kind": "code"
     },
     {
+      "id": "11-clip-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
       "id": "12-persist-deliverable",
       "kind": "code"
     },
@@ -1280,6 +1338,12 @@
     {
       "id": "14d-verify-no-leak",
       "kind": "code"
+    },
+    {
+      "id": "15-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "20-commit-and-record",

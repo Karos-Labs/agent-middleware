@@ -30,23 +30,50 @@ class AgentService:
     # --- Writes ------------------------------------------------------------
 
     async def create(self, payload: AgentCreate) -> dict[str, Any]:
-        now = utcnow()
-        # Dumped wholesale rather than assembled field by field. The hand-listed
-        # version predated the catalog fields and never grew to match the schema,
-        # so `stages`, `icon`, `category`, `credit_cost`, `is_public`,
-        # `required_inputs` and `stages_read_only` were accepted by the request
-        # body and dropped on the floor -- a POST carrying stages returned 201
-        # with the stages gone, and only a follow-up PATCH persisted them. Taking
-        # the whole payload means a field added to AgentCreate is stored by
-        # construction instead of by remembering to edit two places.
-        document = payload.model_dump()
-        document["status"] = payload.status.value
-        document.update({"deleted_at": None, "created_at": now, "updated_at": now})
+        """Persist a new agent from every field ``AgentCreate`` accepts.
 
-        # The same gate `update` puts in front of an edited stage list: a stage
-        # naming a model nothing routes is refused here, not left to surface as a
-        # tooling_error at the model call. Run before the write, so a rejected
-        # create leaves no row and the slug stays free.
+        The document is built by dumping the payload rather than by naming
+        fields, and that is deliberate. This method used to list eight of them
+        by hand and silently drop the other seven -- ``icon``, ``category``,
+        ``credit_cost``, ``is_public``, ``required_inputs``, ``stages`` and
+        ``stages_read_only``. They reached the catalog only through ``PATCH``
+        or the seeder, so an agent created through the API came back from the
+        catalog with no icon, no price and no inputs; and because ``AgentRead``
+        supplies a default for each one, the 201 response looked complete while
+        the stored record was not. A hand-written list is a copy of the schema
+        that nothing keeps in step, and it fell out of step.
+
+        ``mode="json"`` unwraps the nested ``AgentInputDef`` / ``AgentStage``
+        models and the ``AgentStatus`` enum into the plain JSON types Firestore
+        stores, matching the shape ``scripts/seed_all_agents.py`` writes.
+        """
+
+        now = utcnow()
+        # Dumped wholesale rather than assembled field by field. The
+        # hand-listed version predated the catalog fields and never grew to
+        # match the schema, so `stages`, `icon`, `category`, `credit_cost`,
+        # `is_public`, `required_inputs` and `stages_read_only` were accepted
+        # by the request body and dropped on the floor -- a POST carrying
+        # stages returned 201 with the stages gone, and only a follow-up PATCH
+        # persisted them. Taking the whole payload means a field added to
+        # AgentCreate is stored by construction instead of by remembering to
+        # edit two places.
+        #
+        # `mode="json"` rather than a plain dump plus an explicit
+        # `status.value`: it unwraps the nested models AND the enum in one
+        # call, so the same "one place" argument applies to the next enum
+        # somebody adds.
+        document: dict[str, Any] = {
+            **payload.model_dump(mode="json"),
+            "deleted_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        # Validated BEFORE the write, so a rejected create leaves no row behind.
+        # Unreachable at create time until now, which meant an agent could be
+        # born naming a model nothing routes and only a later, unrelated edit
+        # would surface it.
         await self._reject_unknown_stage_models(document["stages"])
 
         try:

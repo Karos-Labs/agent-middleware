@@ -43,6 +43,35 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "rating", "order": "DESCENDING" }
       ]
+    },
+    {
+      "//": "GET /clients/{slug}/runs - every run for a tenant, across agents",
+      "collectionGroup": "agent_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "client_slug", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "GET /clients/{slug}/runs?status=... - same, narrowed by status",
+      "collectionGroup": "agent_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "client_slug", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "GET /agents/{id}/runs?client_slug=... - one agent, one tenant",
+      "collectionGroup": "agent_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "agent_id", "order": "ASCENDING" },
+        { "fieldPath": "client_slug", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

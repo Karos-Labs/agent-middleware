@@ -44,3 +44,28 @@ class IncompleteAgentConfigurationError(MiddlewareError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+class ValidationRefusedError(MiddlewareError):
+    """Raised when a version cannot be published, carrying EVERY reason.
+
+    A list rather than a message. A 40-step version validated one refusal at a
+    time is forty round trips, and the author fixes the first problem, tries
+    again, and learns about the second -- which is how "publish" acquires a
+    reputation for being unpredictable when it is being perfectly consistent.
+    """
+
+    def __init__(self, message: str, problems: list[dict[str, object]]) -> None:
+        super().__init__(message)
+        self.problems = problems
+
+
+class ServiceUnavailableError(MiddlewareError):
+    """Raised when a dependency this route needs is not configured.
+
+    Distinct from a 500: nothing is broken. The configuration database has no
+    DSN in this environment yet, which is a deployment state, and saying so is
+    more useful than a stack trace.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)

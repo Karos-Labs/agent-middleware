@@ -8,8 +8,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.api.schemas.common import SlugStr
-from app.api.schemas.presentation import AgentInputDef, AgentStage
-from app.core.enums import AgentStatus
+from app.api.schemas.presentation import (
+    AgentInputDef,
+    AgentReadiness,
+    AgentStage,
+)
+from app.core.enums import AgentStatus, Capability
 
 
 class AgentCreate(BaseModel):
@@ -39,6 +43,17 @@ class AgentCreate(BaseModel):
     #: True when `stages` describes compiled code, which is the case for every
     #: hand-written agent-engine workflow.
     stages_read_only: bool = True
+    # --- C4 capability descriptor ------------------------------------------
+    # What an agent is FOR, as opposed to how it presents. Written here once
+    # and consumed by the portal's chat router, which selects on
+    # capabilities x platforms x consumesMedia and never on the agent's name.
+    capabilities: list[Capability] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)
+    consumes_media: bool = False
+    supports_target_date: bool = False
+    custom_agent_keys: list[str] = Field(default_factory=list)
+    gates: list[str] = Field(default_factory=list)
+    readiness: AgentReadiness = Field(default_factory=AgentReadiness)
 
 
 class AgentUpdate(BaseModel):
@@ -59,6 +74,13 @@ class AgentUpdate(BaseModel):
     required_inputs: list[AgentInputDef] | None = None
     stages: list[AgentStage] | None = None
     stages_read_only: bool | None = None
+    capabilities: list[Capability] | None = None
+    platforms: list[str] | None = None
+    consumes_media: bool | None = None
+    supports_target_date: bool | None = None
+    custom_agent_keys: list[str] | None = None
+    gates: list[str] | None = None
+    readiness: AgentReadiness | None = None
 
 
 class AgentStatusUpdate(BaseModel):
@@ -87,6 +109,13 @@ class AgentRead(BaseModel):
     required_inputs: list[AgentInputDef] = Field(default_factory=list)
     stages: list[AgentStage] = Field(default_factory=list)
     stages_read_only: bool = True
+    capabilities: list[Capability] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)
+    consumes_media: bool = False
+    supports_target_date: bool = False
+    custom_agent_keys: list[str] = Field(default_factory=list)
+    gates: list[str] = Field(default_factory=list)
+    readiness: AgentReadiness = Field(default_factory=AgentReadiness)
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime

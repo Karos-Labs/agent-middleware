@@ -38,6 +38,18 @@ substitutions:
   _AUTH_AUDIENCE: ""
   # JSON array of caller service-account emails.
   _AUTH_ALLOWED_SERVICE_ACCOUNTS: "[]"
+  # The configuration plane (S2/S4/S6). Both empty is a valid, supported
+  # deployment: the service starts, the /config routes answer 503 naming the
+  # variable, and everything else is unaffected. Both set is the wired
+  # deployment. Exactly one set is refused below, because that combination is
+  # the one that looks deployed and is not -- a DSN with no attached instance
+  # points at a unix socket the container does not have.
+  #
+  # No secret lives here. With IAM database authentication the DSN carries a
+  # principal and a socket path and no password, which is the whole reason to
+  # prefer it over Secret Manager for this value.
+  _CLOUDSQL_INSTANCE: ""
+  _CONFIG_DB_DSN: ""
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -59,23 +71,81 @@ steps:
 
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: gcloud
+    entrypoint: bash
+    # A script rather than a flat `args` list, for one reason: the Cloud SQL
+    # flags have to be present or absent, and a flat list can only make them
+    # empty. `--set-cloudsql-instances=` with no value is not "leave it
+    # alone", and an env var set to "" is not the same as unset -- the
+    # settings loader treats "" as configured-and-blank.
     args:
-      - run
-      - deploy
-      - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-      - --region=${_REGION}
-      # Never public: karos-cmo reaches this through Cloud Run IAM, and the
-      # app checks the caller's identity again on top of that.
-      - --no-allow-unauthenticated
-      - --service-account=${_SERVICE_ACCOUNT}
-      - --memory=1Gi
-      # `^|^` delimiter, not the default comma: AUTH_ALLOWED_SERVICE_ACCOUNTS is
-      # a JSON array that will contain commas as soon as there are two callers,
-      # and a comma-delimited list would split it mid-value. `|` cannot appear
-      # in a service-account email or a bucket name.
-      - "--set-env-vars=^|^ENVIRONMENT=${_ENVIRONMENT}|LOG_LEVEL=INFO|GCP_PROJECT_ID=${_GCP_PROJECT_ID}|PUBSUB_JOB_TOPIC_ID=${_PUBSUB_JOB_TOPIC_ID}|FIRESTORE_PROJECT_ID=${_FIRESTORE_PROJECT_ID}|FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}|GCS_ARTIFACTS_BUCKET=${_GCS_ARTIFACTS_BUCKET}|AUTH_ENABLED=true|AUTH_AUDIENCE=${_AUTH_AUDIENCE}|AUTH_ALLOWED_SERVICE_ACCOUNTS=${_AUTH_ALLOWED_SERVICE_ACCOUNTS}"
+      - -c
+      - |
+        set -euo pipefail
+
+        # Every substitution is captured in SINGLE quotes first, and nothing
+        # below interpolates one again. Cloud Build pastes these in as text,
+        # and AUTH_ALLOWED_SERVICE_ACCOUNTS is a JSON array -- so the value
+        # arrives carrying double quotes of its own, which would end a
+        # double-quoted shell string and silently deploy a mangled allow-list.
+        # A single quote in any of these would break this in turn; none can
+        # appear in a service-account email, a bucket name, a Firestore
+        # database id or a DSN.
+        environment='${_ENVIRONMENT}'
+        gcp_project='${_GCP_PROJECT_ID}'
+        job_topic='${_PUBSUB_JOB_TOPIC_ID}'
+        fs_project='${_FIRESTORE_PROJECT_ID}'
+        fs_database='${_FIRESTORE_DATABASE}'
+        artifacts_bucket='${_GCS_ARTIFACTS_BUCKET}'
+        auth_audience='${_AUTH_AUDIENCE}'
+        auth_callers='${_AUTH_ALLOWED_SERVICE_ACCOUNTS}'
+        dsn='${_CONFIG_DB_DSN}'
+        instance='${_CLOUDSQL_INSTANCE}'
+
+        # `^|^` delimiter, not the default comma: the allow-list is a JSON
+        # array that will contain commas as soon as there are two callers, and
+        # a comma-delimited list would split it mid-value. `|` cannot appear
+        # in a service-account email, a bucket name, or a DSN.
+        env_vars="ENVIRONMENT=$${environment}"
+        env_vars="$${env_vars}|LOG_LEVEL=INFO"
+        env_vars="$${env_vars}|GCP_PROJECT_ID=$${gcp_project}"
+        env_vars="$${env_vars}|PUBSUB_JOB_TOPIC_ID=$${job_topic}"
+        env_vars="$${env_vars}|FIRESTORE_PROJECT_ID=$${fs_project}"
+        env_vars="$${env_vars}|FIRESTORE_DATABASE=$${fs_database}"
+        env_vars="$${env_vars}|GCS_ARTIFACTS_BUCKET=$${artifacts_bucket}"
+        env_vars="$${env_vars}|AUTH_ENABLED=true"
+        env_vars="$${env_vars}|AUTH_AUDIENCE=$${auth_audience}"
+        env_vars="$${env_vars}|AUTH_ALLOWED_SERVICE_ACCOUNTS=$${auth_callers}"
+
+        if { [ -n "$${dsn}" ] && [ -z "$${instance}" ]; } \
+        || { [ -z "$${dsn}" ] && [ -n "$${instance}" ]; }; then
+          echo "refusing to deploy: _CONFIG_DB_DSN and _CLOUDSQL_INSTANCE go" >&2
+          echo "together. A DSN with no attached instance points at" >&2
+          echo "/cloudsql/... inside a container that has no such socket, and" >&2
+          echo "an attached instance nothing connects to is a Cloud SQL" >&2
+          echo "connection charged for and unused. Set both or neither." >&2
+          exit 1
+        fi
+
+        sql_flag="--clear-cloudsql-instances"
+        if [ -n "$${dsn}" ]; then
+          env_vars="$${env_vars}|CONFIG_DB_DSN=$${dsn}"
+          sql_flag="--set-cloudsql-instances=$${instance}"
+        fi
+
+        # Both flags are declarative on purpose. `--set-env-vars` replaces the
+        # whole set and `--set-cloudsql-instances` replaces the whole list, so
+        # the deployed revision is exactly what this file says -- and a value
+        # somebody added by hand in the Console is removed rather than
+        # silently kept, which is what makes this file the answer to "what is
+        # configured" instead of one of two answers.
+        gcloud run deploy ${_SERVICE} \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA \
+          --region=${_REGION} \
+          --no-allow-unauthenticated \
+          --service-account=${_SERVICE_ACCOUNT} \
+          --memory=1Gi \
+          "$${sql_flag}" \
+          "--set-env-vars=^|^$${env_vars}"
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA

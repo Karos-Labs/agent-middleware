@@ -98,11 +98,17 @@ jobs:
           GCS_ARTIFACTS_BUCKET: ${{ vars.PREP_GCS_ARTIFACTS_BUCKET }}
           AUTH_AUDIENCE: ${{ vars.PREP_AUTH_AUDIENCE }}
           AUTH_ALLOWED_SERVICE_ACCOUNTS: ${{ vars.PREP_AUTH_ALLOWED_SERVICE_ACCOUNTS || '[]' }}
+          # The configuration plane. Both default to empty, which is a
+          # supported deployment: the service starts and the /config routes
+          # answer 503 naming the variable. cloudbuild.yaml refuses a deploy
+          # with one set and not the other.
+          CLOUDSQL_INSTANCE: ${{ vars.PREP_CLOUDSQL_INSTANCE }}
+          CONFIG_DB_DSN: ${{ vars.PREP_CONFIG_DB_DSN }}
         run: |
           gcloud builds submit \
             --project="$PROJECT_ID" \
             --config=cloudbuild.yaml \
-            --substitutions="^|^COMMIT_SHA=$SHA|_REGION=$REGION|_SERVICE=agent-middleware|_SERVICE_ACCOUNT=$SERVICE_ACCOUNT|_ENVIRONMENT=staging|_GCP_PROJECT_ID=$PROJECT_ID|_PUBSUB_JOB_TOPIC_ID=$PUBSUB_JOB_TOPIC|_FIRESTORE_PROJECT_ID=$FIRESTORE_PROJECT_ID|_FIRESTORE_DATABASE=$FIRESTORE_DATABASE|_GCS_ARTIFACTS_BUCKET=$GCS_ARTIFACTS_BUCKET|_AUTH_AUDIENCE=$AUTH_AUDIENCE|_AUTH_ALLOWED_SERVICE_ACCOUNTS=$AUTH_ALLOWED_SERVICE_ACCOUNTS"
+            --substitutions="^|^COMMIT_SHA=$SHA|_REGION=$REGION|_SERVICE=agent-middleware|_SERVICE_ACCOUNT=$SERVICE_ACCOUNT|_ENVIRONMENT=staging|_GCP_PROJECT_ID=$PROJECT_ID|_PUBSUB_JOB_TOPIC_ID=$PUBSUB_JOB_TOPIC|_FIRESTORE_PROJECT_ID=$FIRESTORE_PROJECT_ID|_FIRESTORE_DATABASE=$FIRESTORE_DATABASE|_GCS_ARTIFACTS_BUCKET=$GCS_ARTIFACTS_BUCKET|_AUTH_AUDIENCE=$AUTH_AUDIENCE|_AUTH_ALLOWED_SERVICE_ACCOUNTS=$AUTH_ALLOWED_SERVICE_ACCOUNTS|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CONFIG_DB_DSN=$CONFIG_DB_DSN"
 
       # A deploy that starts but cannot reach Firestore is worse than a failed
       # one, because nothing else will tell you until a dispatch fails.

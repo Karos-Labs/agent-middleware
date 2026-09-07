@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.schemas.agent import AgentCreate, AgentRead, AgentStatusUpdate, AgentUpdate
 from app.api.schemas.common import Page, Pagination, pagination, parse_rows
 from app.core.enums import AgentStatus
+from app.core.roles import Role
 from app.dependencies import get_agent_service
+from app.security import CallerIdentity, require_role
 from app.services.agents import AgentService
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -24,6 +26,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
     response_model=AgentRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create an agent",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def create_agent(
     payload: AgentCreate,
@@ -78,12 +81,31 @@ async def get_agent(
     return AgentRead.model_validate(agent)
 
 
-@router.patch("/{agent_id}", response_model=AgentRead, summary="Update an agent")
+@router.patch(
+    "/{agent_id}",
+    response_model=AgentRead,
+    summary="Update an agent",
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
 async def update_agent(
     agent_id: str,
     payload: AgentUpdate,
+    identity: CallerIdentity = Depends(require_role(Role.EDITOR)),
     agents: AgentService = Depends(get_agent_service),
 ) -> AgentRead:
+    # `status` is admin-only wherever it is set, not only on the dedicated
+    # route. AgentUpdate accepts it too, so gating PATCH /{id}/status while
+    # leaving this route at editor would put the admin check on the tidier of
+    # two doors into the same room -- and the tidier door is not the one
+    # somebody would use to get around it.
+    if payload.status is not None and not identity.role.satisfies(Role.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"caller '{identity.actor}' holds role '{identity.role.value}'; "
+                "changing an agent's status requires 'admin' or higher"
+            ),
+        )
     agent = await agents.update(agent_id, payload)
     return AgentRead.model_validate(agent)
 
@@ -93,6 +115,7 @@ async def update_agent(
     response_model=AgentRead,
     summary="Enable or disable an agent",
     description="A disabled agent can still be read and edited, but not dispatched.",
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def set_agent_status(
     agent_id: str,
@@ -111,6 +134,7 @@ async def set_agent_status(
         "Stamps ``deleted_at`` and disables the agent. The document is kept so "
         "existing runs and feedback stay resolvable."
     ),
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def delete_agent(
     agent_id: str,
@@ -124,6 +148,7 @@ async def delete_agent(
     "/{agent_id}/restore",
     response_model=AgentRead,
     summary="Undo a logical delete",
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def restore_agent(
     agent_id: str,

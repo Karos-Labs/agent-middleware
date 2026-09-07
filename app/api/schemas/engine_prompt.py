@@ -39,3 +39,47 @@ class EnginePromptVersionSummary(BaseModel):
     content: str
     replaced_at: Any | None = None
     replaced_by: str | None = None
+
+# --- The unified store (S7 / SCRUM-221) -------------------------------------
+
+
+class PromptVersionRead(BaseModel):
+    """One version out of the append-only store.
+
+    Distinct from :class:`EnginePromptVersionSummary`, which is a row of the
+    capped ``supersededHistory`` array this replaces. That one had no version
+    number of its own, no author you could rely on, and no way to be fetched
+    individually -- so it could show you that an edit happened and never show
+    you the edit.
+    """
+
+    version: int
+    content: str
+    content_hash: str
+    #: authored -- written through this API. imported -- recovered from the
+    #: engine document or from supersededHistory, which was capped at ten
+    #: entries, so an import is a FLOOR on the history and not the whole of it.
+    #: restored -- a copy of an earlier version.
+    origin: str
+    notes: str | None = None
+    #: Which version this one reinstated, when it is a restore.
+    restored_from_version: int | None = None
+    #: True for the version currently sitting in the engine's document. Exactly
+    #: one version is live, and it is not always the newest: a save whose
+    #: projection failed leaves a newer version recorded but not running.
+    is_live: bool = False
+    created_at: Any | None = None
+    created_by: str | None = None
+
+
+class PromptRestoreRequest(BaseModel):
+    """Body for ``POST /engine-prompts/{id}/versions/{v}/store/{n}/restore``."""
+
+    reason: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "Recorded on the version and on the audit row. A restore with no "
+            "recorded reason is the one somebody re-litigates a week later."
+        ),
+    )

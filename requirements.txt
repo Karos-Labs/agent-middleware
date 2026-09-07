@@ -8,3 +8,6 @@ google-cloud-storage>=2.16,<4.0
 # Already a transitive dependency of the clients above; declared explicitly
 # because app/security.py imports it directly to verify OIDC identity tokens.
 google-auth>=2.30,<3.0
+# The configuration plane (S2/S4). Absent DSN means the pool is never built,
+# so this is a dependency of the code path rather than of startup.
+asyncpg>=0.29,<1.0

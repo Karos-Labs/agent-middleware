@@ -52,6 +52,7 @@ RUNS = "agent_runs"
 FEEDBACK = "run_feedback"
 MODELS = "models"
 MODEL_ACCESS_REQUESTS = "model_access_requests"
+MODEL_ALIASES = "model_aliases"
 
 # Subcollections.
 PROMPTS = "prompts"
