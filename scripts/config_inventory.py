@@ -224,9 +224,37 @@ def collect_wiring() -> Wiring:
             if match:
                 wiring.declared_substitutions[match.group(1)] = match.group(2).strip().strip('"')
 
+    # The deploy step composes its env vars in shell rather than as one flat
+    # `--set-env-vars` argument, because the Cloud SQL flags have to be
+    # PRESENT or ABSENT and a flat argument list can only make them empty. So
+    # the names live in `env_vars="NAME=..."` lines and this reads them there.
+    #
+    # This parser existing at all is the point of the section: when the deploy
+    # step changed shape, the flat-flag regex below stopped matching and this
+    # inventory reported zero wired variables -- which is not "nothing is
+    # wired", it is "the check went quiet". A config checker that answers
+    # "none" when it means "I cannot see" is worse than no checker.
+    shell_vars = dict(
+        re.findall(r"^\s{8}([a-z_]+)='(\$\{_[A-Z][A-Z0-9_]*\})'\s*$", source, re.MULTILINE)
+    )
+    composed = re.findall(
+        r'^\s+env_vars="(?:\$\$\{env_vars\}\|)?([A-Z][A-Z0-9_]+)=(.*)"\s*$',
+        source,
+        re.MULTILINE,
+    )
+    for name, value in composed:
+        # `$${shell}` back to `${_SUBSTITUTION}`, so a value that comes from a
+        # substitution still reads as one and is not mistaken for a literal
+        # hardcoded in both environments.
+        resolved = re.sub(
+            r"\$\$\{([a-z_]+)\}", lambda m: shell_vars.get(m.group(1), m.group(0)), value
+        )
+        wiring.env_vars[name] = resolved.strip()
+
     # `^|^` selects `|` as the delimiter instead of a comma, because
     # AUTH_ALLOWED_SERVICE_ACCOUNTS is a JSON array and a comma-delimited list
-    # would split it mid-value. Parsing this as CSV is the obvious bug.
+    # would split it mid-value. Parsing this as CSV is the obvious bug. Kept
+    # for the flat form, which is still what a simpler service uses.
     for flag, target in (("set-env-vars", wiring.env_vars), ("set-secrets", wiring.secrets)):
         for raw in re.findall(rf'--{flag}=([^"\n]+)', source):
             body = raw
