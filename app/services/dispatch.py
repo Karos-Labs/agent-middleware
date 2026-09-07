@@ -27,6 +27,7 @@ from app.core.exceptions import (
     IncompleteAgentConfigurationError,
     MessagePublishError,
     ResourceNotFoundError,
+    StagesAreCompiledError,
 )
 from app.db.firestore import utcnow
 from app.services.context import ContextService
@@ -156,6 +157,18 @@ class DispatchService:
             # refuse a dispatch that worked yesterday.
             logger.info(
                 "no configuration-plane version for %s; dispatching without a snapshot",
+                context.agent.slug,
+            )
+            return None, None
+        except StagesAreCompiledError:
+            # The agent's stage list is a compiled workflow (S5), so there is
+            # no version to freeze and there never will be. DEBUG rather than
+            # INFO because, unlike the case above, this is not a migration
+            # window that closes -- it is the steady state for every
+            # hand-written engine agent, and a line per dispatch saying so is
+            # noise that trains people to stop reading the log.
+            logger.debug(
+                "%s runs a compiled workflow; dispatching without a snapshot",
                 context.agent.slug,
             )
             return None, None

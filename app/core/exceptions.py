@@ -45,6 +45,30 @@ class IncompleteAgentConfigurationError(MiddlewareError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
 
+
+class StagesAreCompiledError(IncompleteAgentConfigurationError):
+    """The agent's stage list is a program, so there is no version to freeze.
+
+    A subclass rather than a flag, because the two callers need opposite
+    things from it and both are right:
+
+    * A dispatch must FALL BACK. The thirteen hand-written agent-engine
+      workflows run today and must keep running; the ExecutionSnapshot
+      arriving is a change in what the message carries, never a change in
+      whether the message goes out. So `DispatchService` catches this and
+      publishes exactly what it published before, recording
+      `config_source: "stores"`.
+    * An API caller must be REFUSED, with the reason. Asking for the snapshot
+      of an agent whose stages are compiled is a question with no answer, and
+      answering 200 with a partial one is worse than 422 with an explanation.
+
+    Being a subclass means the second behaviour is the default -- every
+    existing handler that maps `IncompleteAgentConfigurationError` to 422
+    keeps doing so -- and the first is opted into by the one caller that
+    should.
+    """
+
+
 class ValidationRefusedError(MiddlewareError):
     """Raised when a version cannot be published, carrying EVERY reason.
 
