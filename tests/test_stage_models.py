@@ -104,8 +104,85 @@ def test_dispatch_carries_only_the_stages_that_named_a_model(
     _topic, data, _attributes = fake_publisher_client.published[0]
     body = json.loads(data)
     # camelCase, because this is the half of the message the engine's own
-    # schema reads.
-    assert body["stageModels"] == {"01-draft": "claude-haiku-4-5"}
+    # schema reads. The VALUE is the model's provider name, the id the engine's
+    # own catalog knows, never the catalog document id it would refuse; a stage
+    # seeded without an `agent_id` falls back to its step id as the key.
+    assert body["stageModels"] == {"01-draft": "claude-haiku-4-5@20251001"}
+
+
+def test_dispatch_keys_the_map_by_the_engine_agent_id_not_the_step_id(
+    client: TestClient,
+    agent: dict[str, Any],
+    template: dict[str, Any],
+    fake_publisher_client: FakePublisherClient,
+) -> None:
+    # `applyStageModelOverride` reads `stageModels[this.config.id]`: the agent
+    # class's own id (`x-draft`), not the workflow step id (`10-draft-post`).
+    # Keyed by the step id, a Studio pick was stored, displayed and ignored.
+    make_model(
+        client,
+        model_id="claude-opus-4-8-on-vertex",
+        display_name="Claude Opus 4.8",
+        vendor="anthropic",
+        provider_model_name="claude-opus-4-8",
+    )
+    client.put(f"/agents/{agent['id']}/templates/primary", json={"template_ref": template["id"]})
+    response = client.patch(
+        f"/agents/{agent['id']}",
+        json={
+            "stages": _stages(
+                **{
+                    "01-draft": {
+                        "agent_id": "x-draft",
+                        "default_model": "claude-sonnet-4-6",
+                        "vendor": "anthropic",
+                        "model_id": "claude-opus-4-8-on-vertex",
+                    }
+                }
+            )
+        },
+    )
+    assert response.status_code == 200, response.text
+    stage = {s["id"]: s for s in response.json()["stages"]}["01-draft"]
+    assert (stage["agent_id"], stage["default_model"], stage["vendor"]) == (
+        "x-draft",
+        "claude-sonnet-4-6",
+        "anthropic",
+    )
+
+    client.post(
+        f"/agents/{agent['id']}/jobs",
+        json={"client_slug": "acme", "input": {}, "requested_by": "portal"},
+    )
+    _topic, data, _attributes = fake_publisher_client.published[0]
+    assert json.loads(data)["stageModels"] == {"x-draft": "claude-opus-4-8"}
+
+
+def test_a_stage_cannot_be_pointed_at_another_vendors_model(
+    client: TestClient, agent: dict[str, Any]
+) -> None:
+    # The engine selects an adapter from the stage's compiled vendor alone and
+    # refuses a cross-vendor override after the run has started. Refused here,
+    # on the edit, with the same rule.
+    make_model(client)  # gemini-2-5-pro, vendor google
+    response = client.patch(
+        f"/agents/{agent['id']}",
+        json={
+            "stages": _stages(
+                **{"01-draft": {"vendor": "anthropic", "model_id": "gemini-2-5-pro"}}
+            )
+        },
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert "gemini-2-5-pro" in detail and "anthropic" in detail
+
+    # A stage seeded before `vendor` existed is not blocked: nothing to compare.
+    response = client.patch(
+        f"/agents/{agent['id']}",
+        json={"stages": _stages(**{"01-draft": {"model_id": "gemini-2-5-pro"}})},
+    )
+    assert response.status_code == 200, response.text
 
 
 def test_dispatch_omits_the_map_entirely_when_no_stage_overrides(

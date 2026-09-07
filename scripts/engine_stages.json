@@ -39,7 +39,10 @@
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "blog-craft@3"
+      "skill_ref": "blog-craft@3",
+      "agent_id": "blog-draft",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "10-verify-numbers-sourced",
@@ -68,20 +71,15 @@
       "gate_kind": "batch_review"
     },
     {
-      "id": "16-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "17-persist-manifest",
-      "kind": "code"
-    },
-    {
       "id": "18-commit-and-record",
       "kind": "code"
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -98,7 +96,23 @@
       "kind": "code"
     },
     {
+      "id": "01b-materialize-inputs",
+      "kind": "code"
+    },
+    {
+      "id": "01c-assets-check",
+      "kind": "code"
+    },
+    {
       "id": "02-load-brand-profile",
+      "kind": "code"
+    },
+    {
+      "id": "02a-load-asset-library",
+      "kind": "code"
+    },
+    {
+      "id": "02c-enforce-context-doc-policy",
       "kind": "code"
     },
     {
@@ -116,16 +130,26 @@
     {
       "id": "06-highlights",
       "kind": "agent",
-      "skill_ref": "branded-shorts-highlights@1"
+      "skill_ref": "branded-shorts-highlights@1",
+      "agent_id": "branded-shorts-highlights",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "07-color-grade",
       "kind": "code"
     },
     {
+      "id": "07b-render-base",
+      "kind": "code"
+    },
+    {
       "id": "08a-plan-graphics",
       "kind": "agent",
-      "skill_ref": "branded-shorts-graphics@1"
+      "skill_ref": "branded-shorts-graphics@3",
+      "agent_id": "branded-shorts-graphics",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "08a2-validate-archetypes",
@@ -133,6 +157,10 @@
     },
     {
       "id": "08b-render-and-gate",
+      "kind": "code"
+    },
+    {
+      "id": "08c-plates-and-render",
       "kind": "code"
     },
     {
@@ -150,20 +178,15 @@
       "kind": "code"
     },
     {
-      "id": "11-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "12-persist-manifest",
-      "kind": "code"
-    },
-    {
       "id": "13-commit-and-record",
       "kind": "code"
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -202,7 +225,10 @@
     {
       "id": "07-generate-strategy-plan",
       "kind": "agent",
-      "skill_ref": "campaign-craft@1"
+      "skill_ref": "campaign-craft@1",
+      "agent_id": "campaign-strategy",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "08-validate-strategy-plan",
@@ -233,11 +259,26 @@
     {
       "id": "15-commit-and-record",
       "kind": "code"
+    },
+    {
+      "id": "guardrail-verify",
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "guardrail-verify-load-topics",
+      "kind": "code"
     }
   ],
   "instagram-agent": [
     {
       "id": "00-auto-setup",
+      "kind": "code"
+    },
+    {
+      "id": "00a-check-media-source",
       "kind": "code"
     },
     {
@@ -257,7 +298,27 @@
       "kind": "code"
     },
     {
+      "id": "02d-load-target-language",
+      "kind": "code"
+    },
+    {
+      "id": "02f-enforce-context-doc-policy",
+      "kind": "code"
+    },
+    {
+      "id": "02g-load-brand-kit-raw",
+      "kind": "code"
+    },
+    {
+      "id": "02h-learned-style-preferences",
+      "kind": "code"
+    },
+    {
       "id": "03-claim-topic",
+      "kind": "code"
+    },
+    {
+      "id": "03a-load-trend-profile",
       "kind": "code"
     },
     {
@@ -267,7 +328,10 @@
     {
       "id": "04b-research-extract-facts",
       "kind": "agent",
-      "skill_ref": "instagram-research@1"
+      "skill_ref": "instagram-research@1",
+      "agent_id": "instagram-research",
+      "default_model": "gemini-2.5-flash",
+      "vendor": "gemini"
     },
     {
       "id": "04c-resolve-templates",
@@ -278,8 +342,28 @@
       "kind": "code"
     },
     {
+      "id": "04e0-load-social-accounts",
+      "kind": "code"
+    },
+    {
+      "id": "04g-style-directive",
+      "kind": "code"
+    },
+    {
+      "id": "04g-style-directive-record-refusal",
+      "kind": "code"
+    },
+    {
+      "id": "04h-select-format",
+      "kind": "code"
+    },
+    {
       "id": "05-write-copy",
-      "kind": "agent"
+      "kind": "agent",
+      "skill_ref": "instagram-copy@11",
+      "agent_id": "instagram-copy",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "05a-list-used-images",
@@ -290,13 +374,20 @@
       "kind": "code"
     },
     {
+      "id": "05c-inspect-candidates",
+      "kind": "code"
+    },
+    {
       "id": "05z-attach-user-media",
       "kind": "code"
     },
     {
       "id": "06-vet-images",
       "kind": "agent",
-      "skill_ref": "instagram-image-vet@2"
+      "skill_ref": "instagram-image-vet@2",
+      "agent_id": "instagram-image-vet",
+      "default_model": "gemini-2.5-flash",
+      "vendor": "gemini"
     },
     {
       "id": "06f-verify-images-on-disk",
@@ -331,9 +422,24 @@
       "kind": "code"
     },
     {
+      "id": "08a2-visual-qa-pre-checks",
+      "kind": "code"
+    },
+    {
+      "id": "08a3-record-contrast-below-floor",
+      "kind": "code"
+    },
+    {
+      "id": "08a4-inspect-rendered",
+      "kind": "code"
+    },
+    {
       "id": "08b-visual-qa",
       "kind": "agent",
-      "skill_ref": "instagram-visual-qa@1"
+      "skill_ref": "instagram-visual-qa@3",
+      "agent_id": "instagram-visual-qa",
+      "default_model": "gemini-2.5-flash",
+      "vendor": "gemini"
     },
     {
       "id": "09a-batch-review",
@@ -370,8 +476,15 @@
       "kind": "code"
     },
     {
+      "id": "09e-record-edit-feedback-style",
+      "kind": "code"
+    },
+    {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -388,9 +501,19 @@
       "kind": "code"
     },
     {
+      "id": "01e-enforce-context-doc-policy",
+      "kind": "code"
+    },
+    {
       "id": "02-generate-report",
       "kind": "agent",
-      "skill_ref": "intel-report-craft@2"
+      "agent_id": "intel-report-draft",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "02b-ground-numeric-claims",
+      "kind": "code"
     },
     {
       "id": "03-verify-numbers-sourced",
@@ -405,18 +528,6 @@
     {
       "id": "05-persist-report",
       "kind": "code"
-    },
-    {
-      "id": "06-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "07-persist-manifest",
-      "kind": "code"
-    },
-    {
-      "id": "08-record-feedback",
-      "kind": "code"
     }
   ],
   "landing-builder-agent": [
@@ -425,52 +536,48 @@
       "kind": "code"
     },
     {
-      "id": "01-reference",
+      "id": "02-capture-site",
       "kind": "code"
     },
     {
-      "id": "02-copy",
+      "id": "02b-grounding-policy",
+      "kind": "code"
+    },
+    {
+      "id": "03-blueprint",
       "kind": "agent",
-      "skill_ref": "landing-copy@1"
+      "skill_ref": "landing-blueprint@1",
+      "agent_id": "landing-blueprint",
+      "default_model": "claude-opus-4-8",
+      "vendor": "anthropic"
     },
     {
-      "id": "02-copy-rebuild",
+      "id": "04-build",
       "kind": "agent",
-      "skill_ref": "landing-copy@1"
+      "skill_ref": "landing-build@1",
+      "agent_id": "landing-build",
+      "default_model": "gemini-3.1-pro-preview",
+      "vendor": "gemini"
     },
     {
-      "id": "03-compose",
+      "id": "05-assemble",
+      "kind": "code"
+    },
+    {
+      "id": "06-check",
+      "kind": "code"
+    },
+    {
+      "id": "07-render",
+      "kind": "code"
+    },
+    {
+      "id": "08-craft-verdict",
       "kind": "agent",
-      "skill_ref": "landing-compose@1"
-    },
-    {
-      "id": "04a-copy-template",
-      "kind": "code"
-    },
-    {
-      "id": "04b-write-generated-files",
-      "kind": "code"
-    },
-    {
-      "id": "05a-gate-deterministic",
-      "kind": "code"
-    },
-    {
-      "id": "05b-gate-fix-and-recheck",
-      "kind": "code"
-    },
-    {
-      "id": "06-render-check",
-      "kind": "code"
-    },
-    {
-      "id": "07-craft-verdict",
-      "kind": "agent",
-      "skill_ref": "landing-craft-verdict@1"
-    },
-    {
-      "id": "07b-stage-site-bundle",
-      "kind": "code"
+      "skill_ref": "landing-craft-verdict@2",
+      "agent_id": "landing-craft-verdict",
+      "default_model": "claude-opus-4-8",
+      "vendor": "anthropic"
     },
     {
       "id": "08-human-review",
@@ -479,24 +586,43 @@
       "gate_kind": "landing_craft_review"
     },
     {
-      "id": "08a-restore-site-bundle",
+      "id": "09-fix",
+      "kind": "agent",
+      "skill_ref": "landing-fix@1",
+      "agent_id": "landing-fix",
+      "default_model": "gemini-3.1-pro-preview",
+      "vendor": "gemini"
+    },
+    {
+      "id": "10-upload",
       "kind": "code"
     },
     {
-      "id": "09a-persist-feedback-round",
+      "id": "11-deploy-preview",
       "kind": "code"
     },
     {
-      "id": "09b-upload-site-bundle",
+      "id": "12-human-review",
       "kind": "code"
     },
     {
-      "id": "09c-persist-deliverable",
+      "id": "13-deploy-live",
+      "kind": "code"
+    },
+    {
+      "id": "14-write-state",
+      "kind": "code"
+    },
+    {
+      "id": "15-persist-deliverable",
       "kind": "code"
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -525,10 +651,6 @@
       "kind": "code"
     },
     {
-      "id": "04-research-pull",
-      "kind": "code"
-    },
-    {
       "id": "05-extract-candidate-summary",
       "kind": "code"
     },
@@ -541,13 +663,24 @@
       "kind": "code"
     },
     {
+      "id": "07b-select-content-mode",
+      "kind": "code"
+    },
+    {
       "id": "08-determine-archetype",
       "kind": "code"
     },
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "linkedin-craft@4"
+      "skill_ref": "linkedin-craft@5",
+      "agent_id": "linkedin-draft",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "09b-verify-formatting",
+      "kind": "code"
     },
     {
       "id": "10-verify-numbers-sourced",
@@ -576,20 +709,15 @@
       "gate_kind": "batch_review"
     },
     {
-      "id": "16-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "17-persist-manifest",
-      "kind": "code"
-    },
-    {
       "id": "18-commit-and-record",
       "kind": "code"
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -614,6 +742,10 @@
       "kind": "code"
     },
     {
+      "id": "04-plan-research",
+      "kind": "code"
+    },
+    {
       "id": "04-research-pull",
       "kind": "code"
     },
@@ -634,9 +766,20 @@
       "kind": "code"
     },
     {
+      "id": "08b-plan-edition",
+      "kind": "agent",
+      "skill_ref": "newsletter-plan@1",
+      "agent_id": "newsletter-plan",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "newsletter-craft@3"
+      "skill_ref": "newsletter-craft@6",
+      "agent_id": "newsletter-draft",
+      "default_model": "claude-opus-4-8",
+      "vendor": "anthropic"
     },
     {
       "id": "10-verify-brand-compliance",
@@ -663,17 +806,25 @@
       "kind": "code"
     },
     {
+      "id": "15b-editorial-lint",
+      "kind": "code"
+    },
+    {
+      "id": "15c-editor-verdict",
+      "kind": "agent",
+      "skill_ref": "newsletter-editor@1",
+      "agent_id": "newsletter-editor",
+      "default_model": "claude-opus-4-8",
+      "vendor": "anthropic"
+    },
+    {
       "id": "16-batch-review",
       "kind": "gate",
       "is_gate": true,
       "gate_kind": "batch_review"
     },
     {
-      "id": "17-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "18-persist-manifest",
+      "id": "17a-render-email",
       "kind": "code"
     },
     {
@@ -682,7 +833,10 @@
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -695,7 +849,7 @@
       "kind": "code"
     },
     {
-      "id": "00-intake-check",
+      "id": "00a-load-client-config",
       "kind": "code"
     },
     {
@@ -711,23 +865,35 @@
       "kind": "code"
     },
     {
-      "id": "04-research-pull",
+      "id": "04a-plan-channel",
+      "kind": "agent",
+      "skill_ref": "reddit-channel-plan@1",
+      "agent_id": "reddit-channel-plan",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "04b-record-auto-charter",
       "kind": "code"
     },
     {
-      "id": "05-extract-candidate-summary",
+      "id": "04c-intake-check",
       "kind": "code"
     },
     {
-      "id": "06-reserve-topic",
+      "id": "05-discover-threads",
       "kind": "code"
     },
     {
-      "id": "07-select-candidate",
+      "id": "05a-prune-missing-communities",
       "kind": "code"
     },
     {
-      "id": "08-select-target-thread",
+      "id": "07-select-target-thread",
+      "kind": "code"
+    },
+    {
+      "id": "08-fetch-thread",
       "kind": "code"
     },
     {
@@ -739,13 +905,20 @@
       "kind": "code"
     },
     {
-      "id": "11-determine-angle",
+      "id": "11-research-pull",
+      "kind": "code"
+    },
+    {
+      "id": "11a-determine-angle",
       "kind": "code"
     },
     {
       "id": "12-draft-reply",
       "kind": "agent",
-      "skill_ref": "reddit-craft@4"
+      "skill_ref": "reddit-craft@5",
+      "agent_id": "reddit-draft",
+      "default_model": "claude-opus-4-8",
+      "vendor": "anthropic"
     },
     {
       "id": "13-verify-numbers-sourced",
@@ -774,20 +947,15 @@
       "gate_kind": "batch_review"
     },
     {
-      "id": "19-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "20-persist-manifest",
-      "kind": "code"
-    },
-    {
       "id": "21-commit-and-record",
       "kind": "code"
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -795,6 +963,10 @@
     }
   ],
   "reputation-agent": [
+    {
+      "id": "00-roster-setup",
+      "kind": "code"
+    },
     {
       "id": "01-open-pulse",
       "kind": "code"
@@ -838,7 +1010,10 @@
     {
       "id": "08a-voice-batch-cycle",
       "kind": "agent",
-      "skill_ref": "reputation-voice@1"
+      "skill_ref": "reputation-voice@1",
+      "agent_id": "reputation-voice",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "08b-mechanical-antislop-cycle",
@@ -860,7 +1035,10 @@
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -869,7 +1047,10 @@
     {
       "id": "tag",
       "kind": "agent",
-      "skill_ref": "reputation-tag@1"
+      "skill_ref": "reputation-tag@1",
+      "agent_id": "reputation-tag",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     }
   ],
   "seo-geo-agent": [
@@ -924,31 +1105,29 @@
     {
       "id": "13-draft-fixes",
       "kind": "agent",
-      "skill_ref": "seo-geo-fix-draft@1"
+      "skill_ref": "seo-geo-fix-draft@2",
+      "agent_id": "seo-geo-fix-draft",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "14-draft-narrative",
       "kind": "agent",
-      "skill_ref": "seo-geo-narrative@1"
+      "skill_ref": "seo-geo-narrative@2",
+      "agent_id": "seo-geo-narrative",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "15-verify-narrative-numbers",
       "kind": "code"
     },
     {
-      "id": "16-assemble-report",
+      "id": "17-assemble-report",
       "kind": "code"
     },
     {
-      "id": "17-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "18-persist-manifest",
-      "kind": "code"
-    },
-    {
-      "id": "19-commit-and-record",
+      "id": "20-commit-and-record",
       "kind": "code"
     }
   ],
@@ -958,12 +1137,36 @@
       "kind": "code"
     },
     {
+      "id": "00a-read-profile",
+      "kind": "code"
+    },
+    {
+      "id": "00b-seed-catalog",
+      "kind": "code"
+    },
+    {
       "id": "01-claim-topic",
+      "kind": "code"
+    },
+    {
+      "id": "01a-check-media-source",
       "kind": "code"
     },
     {
       "id": "01b-resolve-source",
       "kind": "code"
+    },
+    {
+      "id": "01c-discover-topics",
+      "kind": "code"
+    },
+    {
+      "id": "01d-topic-scout",
+      "kind": "agent",
+      "skill_ref": "tiktok-topic-scout@1",
+      "agent_id": "tiktok-topic-scout",
+      "default_model": "gemini-2.5-pro",
+      "vendor": "gemini"
     },
     {
       "id": "02-transcribe",
@@ -976,20 +1179,38 @@
     {
       "id": "03a-moment",
       "kind": "agent",
-      "skill_ref": "tiktok-moment@1"
+      "skill_ref": "tiktok-moment@2",
+      "agent_id": "tiktok-moment",
+      "default_model": "gemini-2.5-pro",
+      "vendor": "gemini"
+    },
+    {
+      "id": "03u-script",
+      "kind": "agent",
+      "skill_ref": "tiktok-script@2",
+      "agent_id": "tiktok-script",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "04-cut-bounds",
       "kind": "code"
     },
     {
-      "id": "06-commentary",
+      "id": "04p-plate",
+      "kind": "code"
+    },
+    {
+      "id": "05-voiceover",
       "kind": "code"
     },
     {
       "id": "06a-commentary",
       "kind": "agent",
-      "skill_ref": "tiktok-commentary@2"
+      "skill_ref": "tiktok-commentary@4",
+      "agent_id": "tiktok-commentary",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "07-compliance",
@@ -1012,6 +1233,10 @@
       "kind": "code"
     },
     {
+      "id": "10b-visual-qa",
+      "kind": "code"
+    },
+    {
       "id": "11-clip-review",
       "kind": "gate",
       "is_gate": true,
@@ -1027,7 +1252,10 @@
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",
@@ -1052,10 +1280,6 @@
       "kind": "code"
     },
     {
-      "id": "04-research-pull",
-      "kind": "code"
-    },
-    {
       "id": "05-extract-candidate-summary",
       "kind": "code"
     },
@@ -1065,6 +1289,10 @@
     },
     {
       "id": "07-select-candidate",
+      "kind": "code"
+    },
+    {
+      "id": "07b-select-content-mode",
       "kind": "code"
     },
     {
@@ -1078,7 +1306,10 @@
     {
       "id": "10-draft-post",
       "kind": "agent",
-      "skill_ref": "x-craft@4"
+      "skill_ref": "x-craft@5",
+      "agent_id": "x-draft",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
     },
     {
       "id": "11-verify-numbers-sourced",
@@ -1090,6 +1321,10 @@
     },
     {
       "id": "13-verify-link-placement",
+      "kind": "code"
+    },
+    {
+      "id": "13b-verify-thread",
       "kind": "code"
     },
     {
@@ -1111,20 +1346,15 @@
       "gate_kind": "batch_review"
     },
     {
-      "id": "18-persist-deliverable",
-      "kind": "code"
-    },
-    {
-      "id": "19-persist-manifest",
-      "kind": "code"
-    },
-    {
       "id": "20-commit-and-record",
       "kind": "code"
     },
     {
       "id": "guardrail-verify",
-      "kind": "agent"
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
     },
     {
       "id": "guardrail-verify-load-topics",

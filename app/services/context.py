@@ -116,12 +116,55 @@ class ContextService:
             max_examples=max_examples,
             require_active=True,
         )
-        if context.system_prompt is None:
+        if context.system_prompt is None and not _executes_from_engine_prompts(context.agent):
             raise IncompleteAgentConfigurationError(
-                f"agent '{agent_ref}' has no active system prompt; publish one before "
+                f"agent '{agent_ref}' has no active system prompt and no stage that "
+                "resolves one from agent-engine's own prompt store; publish one before "
                 "dispatching a job"
             )
+        if context.system_prompt is None:
+            # Not a warning: for an engine-resolved agent this is the normal,
+            # correct state, and logging it as a problem would train readers to
+            # ignore the line that matters (the raise above).
+            logger.info(
+                "Dispatching %s with no control-plane system prompt; its prompted stages "
+                "resolve from agent-engine's prompt store",
+                agent_ref,
+            )
         return context
+
+
+def _executes_from_engine_prompts(agent: AgentContextAgent) -> bool:
+    """Whether this agent's prompted stages load their text from the engine.
+
+    There are two prompt stores, and only one of them is what an agent runs on.
+    This service owns ``agents/{slug}/prompts`` -- versioned, append-only, and
+    resolved into :attr:`AgentContext.system_prompt`. agent-engine executes from
+    its own root ``prompts``/``promptVersions`` collections, which a stage names
+    through its ``skill_ref``. A stage carrying a ``skill_ref`` therefore has its
+    prompt already, from a store this service does not resolve.
+
+    That distinction used to cost nothing, because the gate above refused every
+    agent with no active prompt here -- including the six seeded by
+    ``scripts/seed_all_agents.py``, which deliberately leaves prompts absent for
+    agents with no karos-agents lab source rather than "put words in a client's
+    agent that no one wrote". Absent by design on one side, fatal on the other:
+    ``intel-report-agent``, ``seo-geo-agent``, ``blog-agent``,
+    ``newsletter-agent``, ``reputation-agent`` and ``branded-shorts-agent`` were
+    all undispatchable, each failing with a 422 naming a document the run would
+    not have read.
+
+    Would not have read, today, in the strict sense: ``to_engine_message`` says
+    the resolved prompt rides along for the engine to consume "once it knows
+    how", and until then its ``RunJobRequestSchema`` keeps ``clientSlug``,
+    ``productId`` and ``runKind`` and Zod strips the rest. The gate is kept
+    rather than deleted anyway, and kept narrow rather than made advisory,
+    because that day is a stated intention: an agent with no engine-side prompt
+    source has nothing but this document to run on, and dispatching it would
+    produce a run with no instructions at all. An agent with one loses nothing.
+    """
+
+    return any(stage.skill_ref for stage in agent.stages)
 
 
 def _to_context_prompt(prompt: dict[str, Any] | None) -> AgentContextPrompt | None:

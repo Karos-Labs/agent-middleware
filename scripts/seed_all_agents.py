@@ -393,11 +393,13 @@ CATALOG: tuple[dict[str, Any], ...] = (
     },
 )
 
-#: Default model for every agent, by normalized id from the `models`
-#: collection. One default rather than per-agent guesses: nothing here has a
-#: measured reason to differ yet, and a fabricated per-agent split would read
-#: as a decision somebody made.
-DEFAULT_MODEL_ID = "claude-sonnet-4-6-on-vertex"
+#: No agent-wide model. Until 2026-09-07 every agent was seeded with
+#: ``claude-sonnet-4-6-on-vertex`` here, the engine never read the field, and
+#: the Studio rendered it as if it were what the agent ran on -- wrong for the
+#: opus drafting steps and for every Gemini step. Which model a step runs on
+#: is a per-STAGE fact, read from the agent class's own ``modelPolicy`` by
+#: ``generate_engine_stages.py`` into each stage's ``default_model``.
+DEFAULT_MODEL_ID = None
 
 #: Human labels for stage-id prefixes, so the Studio reads as steps rather than
 #: as slugs. Anything unmatched falls back to the id with hyphens removed.
@@ -470,6 +472,14 @@ def load_stages() -> dict[str, list[dict[str, Any]]]:
                 # explicitly so the field exists on the document rather than
                 # being absent and read as a default.
                 "model_id": None,
+                # The engine's own facts about a model stage: the agent id the
+                # engine keys stage overrides by, the compiled default model,
+                # and the vendor an override has to stay within. Read from the
+                # agent class's source by generate_engine_stages.py; absent on
+                # code steps.
+                "agent_id": step.get("agent_id"),
+                "default_model": step.get("default_model"),
+                "vendor": step.get("vendor"),
             }
             for step in steps
         ]

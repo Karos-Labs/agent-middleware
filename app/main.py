@@ -124,10 +124,6 @@ def build_services(
         settings, context_service, run_service, publisher, model_service
     )
     app.state.config_database = config_database
-    app.state.configuration_service = (
-        ConfigurationService(config_database) if config_database is not None else None
-    )
-    app.state.config_database = config_database
     app.state.prompt_store = prompt_store
     app.state.configuration_service = (
         ConfigurationService(config_database) if config_database is not None else None

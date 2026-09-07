@@ -128,9 +128,68 @@ def test_caller_attributes_cannot_override_routing_attributes(
 
 
 def test_dispatch_requires_an_active_prompt(client: TestClient) -> None:
+    """An agent with no engine-side prompt source has nothing else to run on."""
+
     client.post("/agents", json={"slug": "bare", "name": "Bare"})
 
     response = client.post("/agents/bare/jobs", json={"client_slug": "acme"})
+
+    assert response.status_code == 422
+    assert "no active system prompt" in response.json()["detail"]
+
+
+def test_dispatch_allows_an_agent_whose_stages_carry_a_skill_ref(
+    client: TestClient, fake_publisher_client: FakePublisherClient
+) -> None:
+    """The six seeded agents' case: no prompt HERE, because it lives in the engine.
+
+    ``seed_all_agents.py`` writes stages and deliberately writes no prompt for an
+    agent with no lab source. Before the gate learned to tell the two prompt
+    stores apart, that combination was a permanent 422 -- and the run it refused
+    would have resolved its prompt from ``intel-report-craft@3`` regardless.
+    """
+
+    client.post("/agents", json={"slug": "engine-prompted", "name": "Engine Prompted"})
+    # Stages go on with a PATCH, not the POST: `AgentService.create` does not
+    # persist them. Same two calls `seed_all_agents.py` makes.
+    client.patch(
+        "/agents/engine-prompted",
+        json={
+            "stages": [
+                {"id": "01-research", "label": "Research", "kind": "code"},
+                {
+                    "id": "02-draft",
+                    "label": "Draft",
+                    "kind": "agent",
+                    "skill_ref": "intel-report-craft@3",
+                },
+            ]
+        },
+    )
+
+    response = client.post("/agents/engine-prompted/jobs", json={"client_slug": "acme"})
+
+    assert response.status_code == 202, response.text
+    assert response.json()["run"]["prompt_version"] is None
+    # The gate is the only thing that changed: the message still goes out.
+    assert fake_publisher_client.published
+
+
+def test_dispatch_still_refuses_when_no_stage_is_prompted(client: TestClient) -> None:
+    """Stages alone are not the exemption -- a prompted stage is.
+
+    The two disabled ``*-setup-agent`` rows are exactly this shape: real stages,
+    none of them prompted. Without this case the rule above would read as "has
+    stages", which would wave through an agent that genuinely has no prompt.
+    """
+
+    client.post("/agents", json={"slug": "code-only", "name": "Code Only"})
+    client.patch(
+        "/agents/code-only",
+        json={"stages": [{"id": "01-sync", "label": "Sync", "kind": "code"}]},
+    )
+
+    response = client.post("/agents/code-only/jobs", json={"client_slug": "acme"})
 
     assert response.status_code == 422
     assert "no active system prompt" in response.json()["detail"]

@@ -7,13 +7,21 @@ script that was never committed, so in practice the stage list was produced by
 hand once and drifted -- which is the exact failure that docstring warns about.
 This is that script.
 
-It reads three things out of each workflow and nothing else, so the output is
+It reads four things out of each workflow and nothing else, so the output is
 derived rather than authored:
 
 * the IDS of the ``wf.step.*`` calls -- the stage list,
 * which of the three primitives each used -- the stage ``kind``,
 * for an ``.agent`` call, the ``skillRef`` of the agent class it runs -- which
-  is what lets the Studio put the right prompt next to the right stage.
+  is what lets the Studio put the right prompt next to the right stage,
+* for an ``.agent`` call, the agent class's own ``config.id`` and its compiled
+  ``modelPolicy`` (model and vendor) -- ``agent_id``, ``default_model`` and
+  ``vendor`` on the stage. The engine keys a Studio's per-stage model override
+  by ``config.id``, not by the step id, and the Studio can only say what
+  "engine default" means for a stage if it knows the compiled model. Both were
+  missing from the first version of this feature, which is how a per-stage pick
+  was stored, displayed and never applied, under a label that said every stage
+  ran on Sonnet.
 
 ## Why skillRef has to be resolved rather than read
 
@@ -48,31 +56,63 @@ from typing import Any
 DEFAULT_ENGINE_ROOT = Path(__file__).resolve().parents[2] / "agent-engine"
 OUT_FILE = Path(__file__).with_name("engine_stages.json")
 
-#: The step id is always the first argument and always a literal — a computed
-#: one would break the durable store's own checkpoint keys.
-#:
-#: The optional `\w+\(` is not defensive, it is load-bearing. Six agents now
-#: pass their id through a per-revision helper:
-#:
-#:     const rev = (id) => (revision === 0 ? id : `${id}-r${revision}`);
-#:     await wf.step.agent(rev("10-draft-post"), draftAgent, …)
-#:
-#: Requiring a quote immediately after the paren made all 46 of those calls
-#: invisible, which cost 30-odd stages across blog, instagram, linkedin,
-#: newsletter, reddit and x — including every draft and verify step, i.e. most
-#: of the model steps the Studio's per-stage picker exists to render. The
-#: wrapper takes the base id as its literal, so the capture is unchanged.
-STEP_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*(?:\w+\(\s*)?[\"'`]([^\"'`$]+)[\"'`]")
+#: The step id is always the first argument and always built from a literal —
+#: a computed one would break the durable store's own checkpoint keys. Since
+#: 2026-09 most workflows wrap the literal in one to three pure-suffix helpers
+#: (`rev("id")` adds `-r1` on a revision round, `att("id")` adds
+#: `-attempt-2`, `id(att("09-draft-post"))` both), so the literal is found
+#: through up to three call wrappers. Anything else the helper adds is a
+#: suffix on the same stage, never a different stage.
+WRAPPERS = r"(?:\w+\(\s*){0,3}"
+STEP_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*" + WRAPPERS + r"[\"'`]([^\"'`$]+)[\"'`]")
 
 #: A templated id, e.g. `05-write-copy-attempt-${attempt}`: one stage a
 #: workflow may run several times, not several stages.
-TEMPLATED_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*(?:\w+\(\s*)?`([^`$]*)\$\{")
+TEMPLATED_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*" + WRAPPERS + r"`([^`$]*)\$\{")
+
+#: `stepId.replace("03s-script", "03u-script")`, bare or inside a template
+#: literal: the model step tiktok-agent runs INSIDE its code step, under the
+#: replaced id. The replacement is the id that appears in a run's trace.
+REPLACE_CALL = re.compile(
+    r"wf\.step\.(code|agent|gate)\(\s*`?(?:\$\{)?\s*\w+\.replace\(\s*\"[^\"]+\",\s*\"([^\"]+)\"\s*\)"
+)
 
 #: `const draftAgent = new XDraftAgent({...})`
 AGENT_BINDING = re.compile(r"const\s+(\w+)\s*=\s*new\s+(\w+)\s*\(")
 
 #: The agent an `.agent` call runs — either a variable or constructed inline.
-AGENT_ARG = re.compile(r"wf\.step\.agent\(\s*[^,]+,\s*(?:new\s+(\w+)|(\w+))")
+#: The id argument may itself contain commas (`stepId.replace("a", "b")`), so
+#: the second argument is found by `second_argument`, not by a regex on `[^,]+`.
+AGENT_CALL_OPEN = re.compile(r"wf\.step\.agent\(")
+AGENT_IDENT = re.compile(r"\s*(?:new\s+(\w+)|(\w+))")
+
+
+def second_argument(text: str, open_paren: int) -> int | None:
+    """Index just past the first top-level comma after `open_paren`, or None."""
+    depth = 0
+    quote: str | None = None
+    i = open_paren + 1
+    while i < len(text):
+        ch = text[i]
+        if quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                return None
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return i + 1
+        i += 1
+    return None
+
 
 SKILL_REF = re.compile(r"skillRef:\s*\"([^\"]+)\"")
 
@@ -98,6 +138,25 @@ GATE_KIND = re.compile(r"kind:\s*\"([a-z_]+)\"")
 #: window from `gateId` finds nothing. Anchoring on `buildGate` instead is
 #: exact rather than merely wider.
 BUILD_GATE = re.compile(r"buildGate:")
+
+#: `id: "x-draft"` -- the agent class's own step id (`AgentStepConfig.id`),
+#: which is what `applyStageModelOverride` looks a stage override up by. A
+#: constant (`id: INTEL_REPORT_DRAFT_STEP_ID`) is resolved in the package.
+AGENT_CONFIG_ID = re.compile(r"\bid:\s*(?:\"([^\"]+)\"|([A-Z][A-Z0-9_]+))")
+#: `modelPolicy: resolveModelPolicy("x-draft", { policy: "pinned", model: "...", vendor: "..." })`
+MODEL_POLICY_CALL = re.compile(
+    r"modelPolicy:\s*resolveModelPolicy\(\s*[^,]+,\s*\{([^}]*)\}", re.DOTALL
+)
+#: `modelPolicy: { policy: "commodity", model: "claude-haiku-4-5-20251001" }`
+MODEL_POLICY_LITERAL = re.compile(r"modelPolicy:\s*\{([^}]*)\}", re.DOTALL)
+#: `modelPolicy: INTEL_REPORT_DRAFT_MODEL_POLICY,` -- a named constant, resolved in the package.
+MODEL_POLICY_CONST = re.compile(r"modelPolicy:\s*([A-Z][A-Z0-9_]+)\s*[,}]")
+#: The `model:` field inside a policy object: a literal, or a constant such as
+#: `REPUTATION_CLASSIFIER_MODEL_ID`.
+MODEL_FIELD = re.compile(r"\bmodel:\s*(?:\"([^\"]+)\"|([A-Z][A-Z0-9_]+))")
+VENDOR_FIELD = re.compile(r"\bvendor:\s*\"([^\"]+)\"")
+#: The engine's default when a policy names no vendor (`resolveModelVendor`).
+DEFAULT_ENGINE_VENDOR = "anthropic"
 
 #: Step ids the SHARED terminal guardrail contributes (packages/workflow's
 #: `runTopicGuardrail`). Identifiers, not prompt text: the guardrail builds its
@@ -194,11 +253,158 @@ def class_skill_refs(engine_root: Path) -> dict[str, str]:
     refs: dict[str, str] = {}
     for _path, text in agent_sources(engine_root):
         for match in re.finditer(r"class\s+(\w+)\s+extends\s+BaseAgent", text):
+            # The whole remainder of the file, not a fixed window: a drafting
+            # step's config carries a version-history comment that runs to
+            # several thousand characters before `skillRef`, and a 2,000-char
+            # window silently dropped the skillRef of every such step.
             tail = text[match.end() :]
-            ref = SKILL_REF.search(tail[:2000])
+            ref = SKILL_REF.search(tail)
             if ref:
                 refs[match.group(1)] = ref.group(1)
     return refs
+
+
+def _policy_from_fields(fields: str, package_text: str) -> dict[str, str] | None:
+    """`{model, vendor}` from the inside of a policy object literal, or None."""
+    model_match = MODEL_FIELD.search(fields)
+    if not model_match:
+        return None
+    model = model_match.group(1)
+    if model is None:
+        # `model: SOME_CONSTANT` -- resolve the string constant in the package.
+        const_match = re.search(
+            rf"const\s+{re.escape(model_match.group(2))}\s*=\s*\"([^\"]+)\"", package_text
+        )
+        if not const_match:
+            return None
+        model = const_match.group(1)
+    vendor_match = VENDOR_FIELD.search(fields)
+    return {
+        "model": model,
+        "vendor": vendor_match.group(1) if vendor_match else DEFAULT_ENGINE_VENDOR,
+    }
+
+
+def _policy_from_text(text: str, package_text: str) -> dict[str, str] | None:
+    """The compiled model policy declared in `text`, following one named constant.
+
+    The EARLIEST `modelPolicy:` in `text` wins, whichever shape it takes: a
+    file that declares two agent classes must not have the second class's
+    call-shaped policy read as the first class's, just because the call shape
+    was tried before the constant shape.
+    """
+    candidates = [
+        m
+        for m in (
+            MODEL_POLICY_CALL.search(text),
+            MODEL_POLICY_LITERAL.search(text),
+            MODEL_POLICY_CONST.search(text),
+        )
+        if m
+    ]
+    if not candidates:
+        return None
+    first = min(candidates, key=lambda m: m.start())
+    if first.re is MODEL_POLICY_CALL or first.re is MODEL_POLICY_LITERAL:
+        return _policy_from_fields(first.group(1), package_text)
+    const = first
+    if const:
+        name = re.escape(const.group(1))
+        definition = re.search(
+            rf"const\s+{name}\b[^=]*=\s*(?:resolveModelPolicy\(\s*[^,]+,\s*)?\{{([^}}]*)\}}",
+            package_text,
+            re.DOTALL,
+        )
+        if definition:
+            return _policy_from_fields(definition.group(1), package_text)
+    return None
+
+
+def _resolve_agent_id(id_match: re.Match[str], package_text: str) -> str | None:
+    """The literal id, or the string a constant such as `INTEL_REPORT_DRAFT_STEP_ID` holds."""
+    if id_match.group(1):
+        return id_match.group(1)
+    const_match = re.search(
+        rf"const\s+{re.escape(id_match.group(2))}\s*=\s*\"([^\"]+)\"", package_text
+    )
+    return const_match.group(1) if const_match else None
+
+
+def shared_guardrail_policy(engine_root: Path) -> dict[str, str] | None:
+    """`{agent_id, default_model, vendor}` of the shared terminal guardrail's judge.
+
+    Lives in `packages/workflow`, not under any one agent, so `class_model_policies`
+    never sees it; read the same way so the Studio can say what `guardrail-verify`
+    runs on (Haiku, by design: the cheapest catalogued Claude for a yes/no check).
+    """
+    path = engine_root / "packages" / "workflow" / "src" / "primitives" / "topic-guardrail.ts"
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8", errors="replace")
+    # The id constant (`GUARDRAIL_STEP_ID`) lives in packages/core's agent
+    # definitions, so constants resolve against both packages' sources.
+    package_text = "\n".join(
+        p.read_text(encoding="utf-8", errors="replace")
+        for package in ("workflow", "core")
+        for p in (engine_root / "packages" / package / "src").rglob("*.ts")
+        if "__tests__" not in p.parts
+    )
+    id_match = AGENT_CONFIG_ID.search(text)
+    policy = _policy_from_text(text, package_text)
+    agent_id = _resolve_agent_id(id_match, package_text) if id_match else None
+    if not agent_id or not policy:
+        return None
+    return {"agent_id": agent_id, "default_model": policy["model"], "vendor": policy["vendor"]}
+
+
+def class_model_policies(engine_root: Path) -> dict[str, dict[str, str]]:
+    """Every agent class mapped to `{agent_id, default_model, vendor}`.
+
+    Read from the class body first (the common shape: `config` declared inline
+    with `id:` and `modelPolicy:`), then from the whole file (intel-report
+    declares its config as a module-level literal the class spreads), with
+    named constants resolved across the package's `src/`. A class this cannot
+    read is reported and omitted rather than guessed at: a stage with no
+    `default_model` renders as "not extracted" in the Studio, which is true,
+    where a guess would be a decision nobody made.
+    """
+    policies: dict[str, dict[str, str]] = {}
+    for path in (engine_root / "agents").rglob("*.ts"):
+        if "__tests__" in path.parts or "dist" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        classes = list(re.finditer(r"class\s+(\w+)\s+extends\s+BaseAgent", text))
+        if not classes:
+            continue
+        src_dir = path.parent.parent if path.parent.name == "agent" else path.parent
+        package_text = "\n".join(
+            p.read_text(encoding="utf-8", errors="replace")
+            for p in src_dir.rglob("*.ts")
+            if "__tests__" not in p.parts and "dist" not in p.parts
+        )
+        for index, match in enumerate(classes):
+            # The class body runs to the next class in the file, not to a
+            # fixed window: a window long enough for a drafting step's
+            # version-history comment also reaches into the next class.
+            body_end = classes[index + 1].start() if index + 1 < len(classes) else len(text)
+            body = text[match.end() : body_end]
+            id_match = AGENT_CONFIG_ID.search(body) or AGENT_CONFIG_ID.search(text)
+            policy = _policy_from_text(body, package_text) or _policy_from_text(text, package_text)
+            agent_id = _resolve_agent_id(id_match, package_text) if id_match else None
+            if not agent_id or not policy:
+                print(
+                    f"  ! {path.name}: could not read {match.group(1)}'s config id / "
+                    "modelPolicy -- "
+                    "its stage will carry no default_model",
+                    file=sys.stderr,
+                )
+                continue
+            policies[match.group(1)] = {
+                "agent_id": agent_id,
+                "default_model": policy["model"],
+                "vendor": policy["vendor"],
+            }
+    return policies
 
 
 def product_factories(engine_root: Path) -> dict[str, str]:
@@ -217,7 +423,12 @@ def factory_source(engine_root: Path, factory: str) -> Path | None:
     return None
 
 
-def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]]:
+def stages_for_workflow(
+    path: Path,
+    refs: dict[str, str],
+    policies: dict[str, dict[str, str]] | None = None,
+    guardrail: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     """Every stage ONE workflow runs, in run order, with skillRefs where they exist.
 
     Scoped to the single file that exports the factory, not the whole package
@@ -243,13 +454,20 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
         candidates = [cls for at, name, cls in bindings if name == var and at < pos]
         return candidates[-1] if candidates else ""
 
-    agent_calls = {
-        m.start(): agent_class_at(m.start(), m.group(2) or "", m.group(1) or "")
-        for m in AGENT_ARG.finditer(text)
-    }
+    agent_calls: dict[int, str] = {}
+    for m in AGENT_CALL_OPEN.finditer(text):
+        after_id = second_argument(text, m.end() - 1)
+        if after_id is None:
+            continue
+        ident = AGENT_IDENT.match(text, after_id)
+        if ident:
+            agent_calls[m.start()] = agent_class_at(
+                m.start(), ident.group(2) or "", ident.group(1) or ""
+            )
 
     calls = [(m.start(), m.group(1), m.group(2)) for m in STEP_CALL.finditer(text)]
     calls += [(m.start(), m.group(1), m.group(2)) for m in TEMPLATED_CALL.finditer(text)]
+    calls += [(m.start(), m.group(1), m.group(2)) for m in REPLACE_CALL.finditer(text)]
     for _pos, kind, raw_id in sorted(calls):
         step_id = collapse_retry_suffix(raw_id)
         if not step_id:
@@ -268,6 +486,9 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
             cls = agent_calls.get(_pos, "")
             if refs.get(cls):
                 entry["skill_ref"] = refs[cls]
+            policy = (policies or {}).get(cls)
+            if policy:
+                entry.update(policy)
         if kind == "gate":
             entry["is_gate"] = True
             gate_kind = gate_kind_after(text, _pos)
@@ -287,6 +508,14 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
         # out as ordinary code, and a planner reading it would promise a client
         # immediate delivery from a workflow that waits 24 hours for a person.
         # The gate is the real behaviour; `autoApprove` is a test affordance.
+        #
+        # Below the gate rule, first writer wins but a later reading of the
+        # same id may still UPGRADE it: one carrying a skillRef replaces one
+        # that does not, and one that resolved the agent class merges its
+        # model policy into what is already there rather than replacing it.
+        # Ordered deliberately -- gate over skillRef over policy -- because
+        # the three can arrive in any order and only the first is about which
+        # stage this IS.
         existing = found.get(step_id)
         if existing is None:
             found[step_id] = entry
@@ -294,6 +523,8 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
             found[step_id] = entry
         elif "skill_ref" not in existing and "skill_ref" in entry:
             found[step_id] = entry
+        elif "agent_id" not in existing and "agent_id" in entry:
+            found[step_id] = {**existing, **entry}
 
     # Gates declared through the shared review-cycle primitive. Added after the
     # direct calls above so an id already recorded as a real `wf.step.gate` is
@@ -313,6 +544,8 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
     if "runTopicGuardrail(" in text:
         for gid, gkind in GUARDRAIL_STEPS:
             found.setdefault(gid, {"id": gid, "kind": gkind})
+            if gkind == "agent" and guardrail:
+                found[gid] = {**found[gid], **guardrail}
 
     for raw in sorted(skipped_dynamic):
         print(
@@ -324,6 +557,8 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
 
 def generate(engine_root: Path) -> dict[str, list[dict[str, Any]]]:
     refs = class_skill_refs(engine_root)
+    policies = class_model_policies(engine_root)
+    guardrail = shared_guardrail_policy(engine_root)
     factories = product_factories(engine_root)
     if not factories:
         sys.exit("could not read any product->factory cases from the engine's wiring/workflows.ts")
@@ -334,7 +569,7 @@ def generate(engine_root: Path) -> dict[str, list[dict[str, Any]]]:
         if source is None:
             print(f"  ! {product}: no file exports {factory}() — skipped", file=sys.stderr)
             continue
-        stages = stages_for_workflow(source, refs)
+        stages = stages_for_workflow(source, refs, policies, guardrail)
         if stages:
             out[product] = stages
         else:
@@ -366,9 +601,11 @@ def main() -> int:
     total = sum(len(v) for v in generated.values())
     with_refs = sum(1 for v in generated.values() for s in v if s.get("skill_ref"))
     model_steps = sum(1 for v in generated.values() for s in v if s["kind"] == "agent")
+    with_models = sum(1 for v in generated.values() for s in v if s.get("default_model"))
     print(
         f"{len(generated)} agents, {total} stages, "
-        f"{model_steps} model steps, {with_refs} with a skillRef"
+        f"{model_steps} model steps, {with_refs} with a skillRef, "
+        f"{with_models} with a default model"
     )
 
     if args.check:

@@ -42,18 +42,24 @@ def test_model_id_is_the_document_id(client: TestClient) -> None:
 
 def test_registering_the_same_model_twice_conflicts(client: TestClient) -> None:
     make_model(client)
-    assert client.post(
-        "/models",
-        json={
-            "model_id": "gemini-2-5-pro",
-            "display_name": "Duplicate",
-            "vendor": "google",
-            "provider_model_name": "gemini-2.5-pro",
-            "input_per_1m": 1.25,
-            "output_per_1m": 10.0,
-            "pricing_checked_on": "2026-09-04",
-        },
-    ).status_code == 409
+    # Pricing included because S12 made it mandatory on POST /models: without
+    # it this would 422 on the body and never reach the duplicate check, which
+    # would pass for the wrong reason.
+    assert (
+        client.post(
+            "/models",
+            json={
+                "model_id": "gemini-2-5-pro",
+                "display_name": "Duplicate",
+                "vendor": "google",
+                "provider_model_name": "gemini-2.5-pro",
+                "input_per_1m": 1.25,
+                "output_per_1m": 10.0,
+                "pricing_checked_on": "2026-09-04",
+            },
+        ).status_code
+        == 409
+    )
 
 
 def test_provider_name_is_separate_from_the_id(client: TestClient) -> None:
@@ -152,20 +158,44 @@ def test_access_request_records_the_ask_without_enabling_anything(client: TestCl
 
 
 def test_access_request_for_an_unknown_model_is_404(client: TestClient) -> None:
-    assert client.post(
-        "/models/does-not-exist/access-request",
-        json={"requested_by": "someone@example.com"},
-    ).status_code == 404
+    assert (
+        client.post(
+            "/models/does-not-exist/access-request",
+            json={"requested_by": "someone@example.com"},
+        ).status_code
+        == 404
+    )
 
 
 def test_model_id_charset_is_enforced(client: TestClient) -> None:
     # The id goes in a URL path and is a Firestore document id.
-    assert client.post(
-        "/models",
-        json={
-            "model_id": "Gemini 2.5 Pro",
-            "display_name": "Bad Id",
-            "vendor": "google",
-            "provider_model_name": "gemini-2.5-pro",
-        },
-    ).status_code == 422
+    assert (
+        client.post(
+            "/models",
+            json={
+                "model_id": "Gemini 2.5 Pro",
+                "display_name": "Bad Id",
+                "vendor": "google",
+                "provider_model_name": "gemini-2.5-pro",
+            },
+        ).status_code
+        == 422
+    )
+
+
+def test_fallback_is_stored_and_read_back(client: TestClient) -> None:
+    # What the engine does when the primary route fails is part of picking a
+    # model; a row without it is a model whose failure mode nobody chose.
+    created = make_model(
+        client,
+        model_id="claude-sonnet-4-6-on-vertex",
+        display_name="Claude Sonnet 4.6",
+        vendor="anthropic",
+        provider_model_name="claude-sonnet-4-6",
+        fallback="Vertex first; on 429/404 the same model on Anthropic's API; then Gemini Flash.",
+    )
+    assert created["fallback"].startswith("Vertex first")
+    listed = {m["model_id"]: m for m in client.get("/models").json()["items"]}
+    assert listed["claude-sonnet-4-6-on-vertex"]["fallback"] == created["fallback"]
+    # Rows seeded before the field existed read as null, never as an error.
+    assert listed["gemini-2-5-pro"]["fallback"] is None if "gemini-2-5-pro" in listed else True

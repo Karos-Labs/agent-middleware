@@ -2,6 +2,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from tests.test_models import make_model
+
 
 def test_create_agent_returns_slug_as_id(client: TestClient) -> None:
     response = client.post("/agents", json={"slug": "writer", "name": "Writer"})
@@ -166,6 +168,14 @@ def _full_agent_payload() -> dict[str, Any]:
                 "kind": "gate",
                 "skill_ref": "x-draft@3",
                 "model_id": None,
+                # The three the Studio model picker needs. Non-default for the
+                # same reason as everything else here: `default_model` is the
+                # field a per-stage override is applied ON, so a stage that
+                # round-trips without it is a picker that renders and does
+                # nothing -- which is what it did for months.
+                "agent_id": "x-draft",
+                "default_model": "claude-opus-4-8",
+                "vendor": "anthropic",
             }
         ],
         "stages_read_only": False,
@@ -193,8 +203,18 @@ def test_the_full_payload_covers_every_field_the_schema_accepts() -> None:
     """
 
     from app.api.schemas.agent import AgentCreate
+    from app.api.schemas.presentation import AgentInputDef, AgentStage
 
-    assert set(_full_agent_payload()) == set(AgentCreate.model_fields)
+    payload = _full_agent_payload()
+    assert set(payload) == set(AgentCreate.model_fields)
+
+    # The nested schemas too. The top-level check alone let three fields
+    # (`agent_id`, `default_model`, `vendor`) land on AgentStage uncovered,
+    # and `default_model` is the one a per-stage model override is applied ON
+    # -- so the round trip below would have stopped proving the thing it
+    # exists to prove, without failing.
+    assert set(payload["stages"][0]) == set(AgentStage.model_fields)
+    assert set(payload["required_inputs"][0]) == set(AgentInputDef.model_fields)
 
 
 def test_create_persists_every_field_rather_than_echoing_defaults(
@@ -241,6 +261,11 @@ def test_create_accepts_a_stage_naming_a_model_that_exists(client: TestClient) -
         client,
         model_id="claude-haiku-4-5",
         display_name="Claude Haiku 4.5",
+        # `make_model` defaults to vendor google. Left at the default this
+        # registers a model called Claude Haiku as a Google model, and the
+        # engine picks its adapter from the STAGE's vendor -- so the create is
+        # refused for a mismatch the test never meant to create.
+        vendor="anthropic",
         provider_model_name="claude-haiku-4-5@20251001",
     )
 
@@ -251,3 +276,101 @@ def test_create_accepts_a_stage_naming_a_model_that_exists(client: TestClient) -
 
     assert response.status_code == 201, response.text
     assert response.json()["stages"][0]["model_id"] == "claude-haiku-4-5"
+
+
+# The two tests below arrived on `main` covering the same bug from a different
+# angle. Kept rather than pruned: deleting somebody else's test during a merge
+# is how coverage quietly disappears. Whoever owns this file next can collapse
+# the overlap deliberately.
+
+
+def test_create_persists_the_catalog_fields_it_accepts(client: TestClient) -> None:
+    """Everything ``AgentCreate`` declares survives the POST that carried it.
+
+    ``create`` used to assemble its document from a hand-written list of fields
+    that stopped at ``tags``, so the catalog half of the schema -- what the
+    portal renders -- was accepted with a 201 and silently discarded. Only a
+    follow-up PATCH stored it. Read back through GET rather than trusting the
+    201 body: the response is built from the same dict that was written, so an
+    echo proves nothing about what landed in Firestore.
+    """
+
+    stages = [
+        {"id": "01-draft", "label": "Draft", "kind": "agent", "skill_ref": "draft@3"},
+        {"id": "02-verify", "label": "Verify", "kind": "gate", "is_gate": True},
+    ]
+    required_inputs = [
+        {"key": "topic", "type": "text", "label": "Topic", "required": True}
+    ]
+    created = client.post(
+        "/agents",
+        json={
+            "slug": "catalog-writer",
+            "name": "Catalog Writer",
+            "icon": "pen-line",
+            "category": "content",
+            "credit_cost": 12,
+            "is_public": False,
+            "required_inputs": required_inputs,
+            "stages": stages,
+            "stages_read_only": False,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    stored = client.get("/agents/catalog-writer")
+    assert stored.status_code == 200, stored.text
+    body = stored.json()
+    assert body["icon"] == "pen-line"
+    assert body["category"] == "content"
+    assert body["credit_cost"] == 12
+    assert body["is_public"] is False
+    assert body["stages_read_only"] is False
+    assert [stage["id"] for stage in body["stages"]] == ["01-draft", "02-verify"]
+    assert body["stages"][0]["skill_ref"] == "draft@3"
+    assert body["stages"][1]["is_gate"] is True
+    assert [item["key"] for item in body["required_inputs"]] == ["topic"]
+
+
+def test_create_validates_stage_models_the_way_update_does(client: TestClient) -> None:
+    """A stage cannot smuggle an unroutable model in through create.
+
+    The gate ``update`` runs is only worth having if it cannot be walked around,
+    and a POST that persists stages without it is exactly that walk-around.
+    """
+
+    make_model(client, model_id="claude-haiku-4-5", provider_model_name="claude-haiku-4-5")
+
+    refused = client.post(
+        "/agents",
+        json={
+            "slug": "typo-writer",
+            "name": "Typo Writer",
+            "stages": [
+                {"id": "01-draft", "label": "Draft", "kind": "agent", "model_id": "claude-nope"}
+            ],
+        },
+    )
+    # 409, matching what the same validation returns from PATCH.
+    assert refused.status_code == 409, refused.text
+    assert "claude-nope" in refused.json()["detail"]
+    # Rejected before the write, so the slug is still free.
+    assert client.get("/agents/typo-writer").status_code == 404
+
+    accepted = client.post(
+        "/agents",
+        json={
+            "slug": "real-writer",
+            "name": "Real Writer",
+            "stages": [
+                {
+                    "id": "01-draft",
+                    "label": "Draft",
+                    "kind": "agent",
+                    "model_id": "claude-haiku-4-5",
+                }
+            ],
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["stages"][0]["model_id"] == "claude-haiku-4-5"

@@ -101,6 +101,39 @@ PRICES_CHECKED_ON = "2026-09-04"
 CLAUDE_PRICES = "platform.claude.com/docs/en/about-claude/pricing"
 VERTEX_PRICES = "cloud.google.com/vertex-ai/generative-ai/pricing"
 
+#: How each vendor's route fails over, in the engine's own terms
+#: (`packages/core/src/router/create-model-router-from-env.ts`,
+#: `ResilientClaudeAdapter`). Stated once and copied onto every row so a Studio
+#: author reads it beside the model they are about to pick.
+#:
+#: The tertiary model here is `gemini-1.5-flash` and not Gemini 2.5 Flash. That
+#: is not a preference, it is what the code says:
+#:
+#:     tertiaryModel: readEnv(env, "CLAUDE_FALLBACK_GEMINI_MODEL") ?? "gemini-1.5-flash"
+#:
+#: and it matters twice over -- 1.5 Flash is priced per 1,000 CHARACTERS rather
+#: than per token, which is why its row below carries a converted, approximate
+#: price and a warning.
+CLAUDE_FALLBACK = (
+    "Vertex AI (Agent Platform, global endpoint) first. On a 429 or 404 the SAME model is "
+    "retried on Anthropic's direct API; if that fails too, gemini-1.5-flash answers as the "
+    "last resort (CLAUDE_FALLBACK_GEMINI_MODEL). Any other error fails the step. Note: as "
+    "of 2026-09 every Claude model returns 429 on Vertex in both projects (no quota "
+    "granted), so in practice these run on the direct Anthropic API."
+)
+GEMINI_FALLBACK = (
+    "None. Gemini is served by Vertex AI only; a failure on Vertex fails the step, there "
+    "is no second transport for these models."
+)
+NOT_ROUTED = (
+    "Not routed in this deployment: no adapter is configured for this vendor, so a "
+    "stage pointed at it fails before the first call."
+)
+LEGACY_CLAUDE = (
+    "Previous Claude generation. Kept in the catalog so old run records resolve; not "
+    "offered for new stages. Prefer Claude Sonnet 4.6 or Opus 4.8."
+)
+
 #: The catalog. `available` means the vendor offers it AND agent-engine's
 #: router is wired for it; `not_enabled` means only the first half is true.
 CATALOG: tuple[dict[str, Any], ...] = (
@@ -117,6 +150,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 200_000,
         "supports_tools": True,
         "tiers": ["pinned", "portable"],
+        "fallback": CLAUDE_FALLBACK,
         "input_per_1m": 3.0,
         "output_per_1m": 15.0,
         "cached_input_per_1m": 0.30,
@@ -137,6 +171,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 200_000,
         "supports_tools": True,
         "tiers": ["commodity"],
+        "fallback": CLAUDE_FALLBACK,
         "input_per_1m": 1.0,
         "output_per_1m": 5.0,
         "cached_input_per_1m": 0.10,
@@ -159,6 +194,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 200_000,
         "supports_tools": True,
         "tiers": ["pinned"],
+        "fallback": CLAUDE_FALLBACK,
         "input_per_1m": 5.0,
         "output_per_1m": 25.0,
         "cached_input_per_1m": 0.50,
@@ -181,6 +217,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 200_000,
         "supports_tools": True,
         "tiers": ["pinned", "portable"],
+        "fallback": CLAUDE_FALLBACK,
         "input_per_1m": 2.0,
         "output_per_1m": 10.0,
         "cached_input_per_1m": 0.20,
@@ -197,13 +234,18 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "display_name": "Claude Opus 4.8 (Vertex)",
         "vendor": "anthropic",
         "route": "anthropic",
-        "availability": "not_enabled",
+        "availability": "available",
         "provider_model_name": "claude-opus-4-8",
         "region": "global",
-        "description": "Previous highest-capability Anthropic tier.",
+        "description": (
+            "Highest-capability Anthropic tier. The engine's default for the steps "
+            "where exact prose is the deliverable: the newsletter draft and editor, "
+            "the landing page blueprint and craft verdict, the Reddit draft."
+        ),
         "context_window": 200_000,
         "supports_tools": True,
         "tiers": ["pinned"],
+        "fallback": CLAUDE_FALLBACK,
         "input_per_1m": 5.0,
         "output_per_1m": 25.0,
         "cached_input_per_1m": 0.50,
@@ -227,6 +269,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 1_000_000,
         "supports_tools": True,
         "tiers": ["portable"],
+        "fallback": GEMINI_FALLBACK,
         "input_per_1m": 1.25,
         "output_per_1m": 10.0,
         "pricing_source": VERTEX_PRICES,
@@ -243,6 +286,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 1_000_000,
         "supports_tools": True,
         "tiers": ["commodity"],
+        "fallback": GEMINI_FALLBACK,
         "input_per_1m": 0.30,
         "output_per_1m": 2.50,
         "pricing_source": VERTEX_PRICES,
@@ -264,6 +308,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 1_000_000,
         "supports_tools": True,
         "tiers": ["commodity"],
+        "fallback": GEMINI_FALLBACK,
         "input_per_1m": 0.10,
         "output_per_1m": 0.40,
         "pricing_source": VERTEX_PRICES,
@@ -284,6 +329,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 1_000_000,
         "supports_tools": True,
         "tiers": ["commodity"],
+        "fallback": GEMINI_FALLBACK,
         "input_per_1m": 0.075,
         "output_per_1m": 0.30,
         "pricing_source": (
@@ -311,6 +357,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 128_000,
         "supports_tools": False,
         "tiers": ["commodity"],
+        "fallback": NOT_ROUTED,
         "input_per_1m": 0.72,
         "output_per_1m": 0.72,
         "pricing_source": VERTEX_PRICES,
@@ -332,6 +379,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 128_000,
         "supports_tools": False,
         "tiers": ["commodity"],
+        "fallback": NOT_ROUTED,
         "input_per_1m": 0.10,
         "output_per_1m": 0.30,
         "pricing_source": VERTEX_PRICES,
@@ -348,9 +396,189 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "context_window": 128_000,
         "supports_tools": False,
         "tiers": ["portable"],
+        "fallback": NOT_ROUTED,
         "input_per_1m": 0.40,
         "output_per_1m": 2.00,
         "pricing_source": VERTEX_PRICES,
+    },
+    {
+        "model_id": "claude-opus-4-7-on-vertex",
+        "display_name": "Claude Opus 4.7 (Vertex)",
+        "vendor": "anthropic",
+        "route": "anthropic",
+        "availability": "available",
+        "provider_model_name": "claude-opus-4-7",
+        "region": "global",
+        "description": (
+            "The previous Opus snapshot, same price as 4.8. No engine step defaults "
+            "to it, and it is here so a stage pinned to it before 4.8 shipped still "
+            "resolves."
+        ),
+        "context_window": 200_000,
+        "supports_tools": True,
+        "tiers": ["pinned"],
+        "fallback": CLAUDE_FALLBACK,
+        "input_per_1m": 5.0,
+        "output_per_1m": 25.0,
+        "cached_input_per_1m": 0.50,
+        "pricing_source": CLAUDE_PRICES,
+        "notes": (
+            "Priced from the vendor's own list rather than from the claim that it "
+            "matches 4.8: both are $5/$25, so the claim happens to be right, but a "
+            "price copied from a sibling row is a price with no source."
+        ),
+    },
+    {
+        "model_id": "claude-3-5-haiku-on-vertex",
+        "display_name": "Claude Haiku 3.5 (Vertex)",
+        "vendor": "anthropic",
+        "route": "anthropic",
+        "availability": "not_enabled",
+        "provider_model_name": "claude-3-5-haiku",
+        "region": "us-east5",
+        "description": LEGACY_CLAUDE,
+        "context_window": 200_000,
+        "supports_tools": True,
+        "tiers": ["commodity"],
+        "fallback": CLAUDE_FALLBACK,
+        "input_per_1m": 0.80,
+        "output_per_1m": 4.00,
+        "cached_input_per_1m": 0.08,
+        "pricing_source": CLAUDE_PRICES,
+        "notes": (
+            "The one Claude 3.x model the vendor still publishes a price for -- it "
+            "remains available on Bedrock and Google Cloud. Its siblings are in "
+            "UNPRICED below for exactly that reason."
+        ),
+    },
+)
+
+#: Known to the engine's router, and NOT priceable. A separate list on purpose.
+#:
+#: The whole of S12 is that a model with no price does not produce an error, it
+#: produces a plausible wrong number: both cost paths answer an unknown model
+#: with Sonnet's $3/$15 and no signal. So `CATALOG` above holds a price and a
+#: source for every row, and `_check_prices_are_sane` refuses to seed if one
+#: does not -- which means a row nobody can price cannot go in it.
+#:
+#: Dropping those rows instead would be worse. They are in agent-engine's
+#: `MODEL_CAPABILITIES`, so a stage can name one today; leaving them out of the
+#: catalog makes the Studio show nothing where the engine shows a model, and
+#: makes `GET /models/pricing-coverage` report full coverage of a catalog that
+#: is missing the gaps. Seeded with explicit nulls, they are exactly what that
+#: endpoint is for.
+#:
+#: Priceable later, and each for a different reason:
+#:   * the Claude 3.x rows -- the vendor's current price list no longer carries
+#:     them (only Haiku 3.5, which is therefore in CATALOG above). A price
+#:     would have to come from an archived list, and dating that "checked
+#:     today" is the lie this file exists to prevent.
+#:   * gemini-3-1-pro-preview -- in preview, and Vertex publishes no price for
+#:     it. This is the one that needs an answer soon: see the check below.
+#:   * gpt-4o / gpt-4o-mini -- not on OpenAI's current price page under these
+#:     names, and no adapter routes them here anyway.
+UNPRICED: tuple[dict[str, object], ...] = (
+    {
+        "model_id": "gemini-3-1-pro-preview",
+        "display_name": "Gemini 3.1 Pro (preview)",
+        "vendor": "google",
+        "route": "gemini",
+        "availability": "available",
+        "provider_model_name": "gemini-3.1-pro-preview",
+        "region": "global",
+        "description": "Preview tier. Routed, and the only unpriced model that is.",
+        "context_window": 1_000_000,
+        "supports_tools": True,
+        "tiers": ["portable"],
+        "fallback": GEMINI_FALLBACK,
+    },
+    {
+        "model_id": "claude-3-5-sonnet-on-vertex",
+        "display_name": "Claude 3.5 Sonnet (Vertex)",
+        "vendor": "anthropic",
+        "route": "anthropic",
+        "availability": "not_enabled",
+        "provider_model_name": "claude-3-5-sonnet",
+        "region": "us-east5",
+        "description": LEGACY_CLAUDE,
+        "context_window": 200_000,
+        "supports_tools": True,
+        "tiers": ["portable"],
+        "fallback": CLAUDE_FALLBACK,
+    },
+    {
+        "model_id": "claude-3-5-sonnet-v2-on-vertex",
+        "display_name": "Claude 3.5 Sonnet v2 (Vertex)",
+        "vendor": "anthropic",
+        "route": "anthropic",
+        "availability": "not_enabled",
+        "provider_model_name": "claude-3-5-sonnet-v2",
+        "region": "us-east5",
+        "description": LEGACY_CLAUDE,
+        "context_window": 200_000,
+        "supports_tools": True,
+        "tiers": ["portable"],
+        "fallback": CLAUDE_FALLBACK,
+    },
+    {
+        "model_id": "claude-3-opus-on-vertex",
+        "display_name": "Claude 3 Opus (Vertex)",
+        "vendor": "anthropic",
+        "route": "anthropic",
+        "availability": "not_enabled",
+        "provider_model_name": "claude-3-opus",
+        "region": "us-east5",
+        "description": LEGACY_CLAUDE,
+        "context_window": 200_000,
+        "supports_tools": True,
+        "tiers": ["pinned"],
+        "fallback": CLAUDE_FALLBACK,
+    },
+    {
+        "model_id": "claude-3-haiku-on-vertex",
+        "display_name": "Claude 3 Haiku (Vertex)",
+        "vendor": "anthropic",
+        "route": "anthropic",
+        "availability": "not_enabled",
+        "provider_model_name": "claude-3-haiku",
+        "region": "us-east5",
+        "description": LEGACY_CLAUDE,
+        "context_window": 200_000,
+        "supports_tools": True,
+        "tiers": ["commodity"],
+        "fallback": CLAUDE_FALLBACK,
+    },
+    {
+        "model_id": "gpt-4o",
+        "display_name": "GPT-4o",
+        "vendor": "openai",
+        "route": "openai-compatible",
+        "availability": "not_enabled",
+        "provider_model_name": "gpt-4o",
+        "region": None,
+        "description": (
+            "Named by the karosCMO SEO/GEO engine list. No adapter routes it from "
+            "this deployment, so the cost of a chatgpt-engine run is unattributable "
+            "until both a route and a price exist."
+        ),
+        "context_window": 128_000,
+        "supports_tools": True,
+        "tiers": ["portable"],
+        "fallback": NOT_ROUTED,
+    },
+    {
+        "model_id": "gpt-4o-mini",
+        "display_name": "GPT-4o mini",
+        "vendor": "openai",
+        "route": "openai-compatible",
+        "availability": "not_enabled",
+        "provider_model_name": "gpt-4o-mini",
+        "region": None,
+        "description": "As gpt-4o, at the commodity tier.",
+        "context_window": 128_000,
+        "supports_tools": True,
+        "tiers": ["commodity"],
+        "fallback": NOT_ROUTED,
     },
 )
 
@@ -367,12 +595,12 @@ RETIRED: dict[str, str] = {
 #: The Studio's three-option picker, matching agent-engine's MODEL_ALIASES
 #: exactly so moving the resolution here changes nothing about what runs.
 #:
-#: `opus` is worth a second look: the engine points it at claude-opus-4-8 and
-#: marks it `pinned`, while this catalog marks that model `not_enabled`. So the
-#: alias resolves to a model this deployment does not route. Preserved as-is
-#: rather than quietly repointed -- the two lists disagreeing is a finding, and
-#: fixing it is either enabling the model or changing the alias, both of which
-#: are decisions.
+#: `opus` used to be a finding here: the engine points it at claude-opus-4-8
+#: and marks it `pinned`, while this catalog marked that model `not_enabled`,
+#: so the alias resolved to a model this deployment did not route. Settled in
+#: the direction of the engine -- the model IS routed, six steps default to it,
+#: and the row above now says so. The decision was the engine's to make; this
+#: file was the one that was wrong.
 ALIASES: tuple[dict[str, Any], ...] = (
     {
         "alias": "haiku",
@@ -426,6 +654,17 @@ def _full_row(entry: dict[str, Any]) -> dict[str, Any]:
     document.setdefault("notes", None)
     document.setdefault("description", None)
     document.setdefault("cached_input_per_1m", None)
+    document.setdefault("fallback", None)
+    if entry.get("input_per_1m") is None:
+        # An UNPRICED row. Nulls all the way down, and NO checked-on date: a
+        # date is a claim that somebody looked, and the whole reason the row is
+        # here is that nobody could. A row carrying today's date and no price
+        # is the worst of both -- it reads as verified and priced at nothing.
+        document.setdefault("input_per_1m", None)
+        document.setdefault("output_per_1m", None)
+        document.setdefault("pricing_source", None)
+        document["pricing_checked_on"] = None
+        return document
     document["pricing_checked_on"] = PRICES_CHECKED_ON
     return document
 
@@ -440,8 +679,19 @@ def _check_prices_are_sane() -> list[str]:
 
     problems: list[str] = []
     seen: set[str] = set()
+
+    priced_ids = {entry["model_id"] for entry in CATALOG}
+    for entry in UNPRICED:
+        model_id = str(entry["model_id"])
+        if model_id in priced_ids:
+            # Not pedantry: the two lists are seeded in sequence, so a model in
+            # both would be written priced and then overwritten with nulls.
+            problems.append(f"{model_id}: in both CATALOG and UNPRICED")
+        if entry.get("input_per_1m") is not None:
+            problems.append(f"{model_id}: has a price, so it belongs in CATALOG")
+
     for entry in CATALOG:
-        model_id = entry["model_id"]
+        model_id = str(entry["model_id"])
         if model_id in seen:
             problems.append(f"{model_id}: listed twice")
         seen.add(model_id)
@@ -465,14 +715,44 @@ def _check_prices_are_sane() -> list[str]:
         if isinstance(cached, (int, float)) and isinstance(inp, (int, float)) and cached > inp:
             problems.append(f"{model_id}: a cache read costs more than a fresh read")
 
-    known = {entry["model_id"] for entry in CATALOG}
+    known = priced_ids | {entry["model_id"] for entry in UNPRICED}
     for alias in ALIASES:
         if alias["model_id"] not in known:
             problems.append(
                 f"alias '{alias['alias']}' points at {alias['model_id']}, which is not "
                 "in the catalog"
             )
+        elif alias["model_id"] not in priced_ids:
+            # An alias is what a Studio author picks by default. One resolving
+            # to an unpriced model makes every run started through it
+            # uncostable, which is the same bug S12 removed, reintroduced
+            # through the friendliest door in the product.
+            problems.append(
+                f"alias '{alias['alias']}' points at {alias['model_id']}, which has "
+                "no price -- an alias may only name a priced model"
+            )
     return problems
+
+
+def _pricing_warnings() -> list[str]:
+    """Loud, and not fatal.
+
+    An UNPRICED row that is `not_enabled` is a gap nothing can run into: no
+    adapter routes it, so no run can be costed against it. An UNPRICED row that
+    is `available` is a different thing entirely -- a stage can point at it
+    today and produce a run whose cost falls through to the $3/$15 default.
+    Reported every time the seeder runs rather than refused, for the same
+    reason MODEL_PRICING_ENFORCED is off by default: refusing would make an
+    unpriced preview model block the seeding of the twelve priced ones, and the
+    gap is Google's to close, not this file's.
+    """
+
+    return [
+        f"{entry['model_id']} is ROUTED and has no price -- a stage can point at it "
+        "today and its runs will be costed at the fallback rate"
+        for entry in UNPRICED
+        if entry.get("availability") == "available"
+    ]
 
 
 def main() -> int:
@@ -490,6 +770,9 @@ def main() -> int:
             print(f"  ! {problem}")
         return 1
 
+    for warning in _pricing_warnings():
+        print(f"  WARNING: {warning}")
+
     try:
         from google.cloud import firestore  # type: ignore[attr-defined]
     except ImportError:
@@ -500,7 +783,8 @@ def main() -> int:
 
     print(f"Seeding the model catalog into {FIRESTORE_PROJECT}/{database}")
     print(f"  mode    : {'DRY RUN' if args.dry_run else 'WRITING'}")
-    print(f"  models  : {len(CATALOG)} live, {len(RETIRED)} retired")
+    print(f"  models  : {len(CATALOG)} priced, {len(UNPRICED)} unpriced, "
+          f"{len(RETIRED)} retired")
     print(f"  aliases : {len(ALIASES)}")
     print(f"  prices  : checked {PRICES_CHECKED_ON}\n")
 
@@ -525,12 +809,16 @@ def main() -> int:
             )
         report.record("retired", f"{model_id} -- {why}")
 
-    for entry in CATALOG:
+    # UNPRICED after CATALOG, and the check above guarantees they are disjoint,
+    # so ordering cannot overwrite a price with a null.
+    for entry in (*CATALOG, *UNPRICED):
         document = _full_row(entry)
-        label = (
-            f"{entry['model_id']} ({entry['availability']}, "
-            f"${entry['input_per_1m']}/${entry['output_per_1m']})"
+        price = (
+            f"${entry['input_per_1m']}/${entry['output_per_1m']}"
+            if entry.get("input_per_1m") is not None
+            else "UNPRICED"
         )
+        label = f"{entry['model_id']} ({entry['availability']}, {price})"
 
         if args.dry_run:
             report.record("created", label)

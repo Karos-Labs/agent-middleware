@@ -19,9 +19,14 @@ from app.api.schemas.context import (
     DispatchRequest,
     JobPayload,
 )
+from app.api.schemas.presentation import AgentStage
 from app.config import Settings
 from app.core.enums import RunStatus
-from app.core.exceptions import IncompleteAgentConfigurationError, MessagePublishError
+from app.core.exceptions import (
+    IncompleteAgentConfigurationError,
+    MessagePublishError,
+    ResourceNotFoundError,
+)
 from app.db.firestore import utcnow
 from app.services.context import ContextService
 from app.services.models import ModelService
@@ -151,6 +156,7 @@ class DispatchService:
 
         run_id = request.run_id or str(uuid.uuid4())
         payload = _build_payload(context, request, run_id)
+        stage_models = await self._stage_models_for_engine(context.agent.stages)
 
         run = await self._runs.create(
             context.agent.id,
@@ -173,7 +179,9 @@ class DispatchService:
 
         try:
             message_id = await self._publisher.publish_async(
-                data=json.dumps(to_engine_message(payload), ensure_ascii=False).encode("utf-8"),
+                data=json.dumps(
+                    to_engine_message(payload, stage_models), ensure_ascii=False
+                ).encode("utf-8"),
                 attributes=_message_attributes(context, request, run_id),
                 topic_id=self._settings.job_topic_id,
             )
@@ -197,6 +205,34 @@ class DispatchService:
             }
         )
         return run, payload, message_id
+
+    async def _stage_models_for_engine(self, stages: list[AgentStage]) -> dict[str, str]:
+        """The ``stageModels`` map exactly as ``applyStageModelOverride`` reads it.
+
+        Two translations, both of which the first version of this feature
+        skipped, which is why a Studio pick was stored, displayed and ignored:
+
+        * the KEY is the engine's agent id (``x-draft``), not the workflow step
+          id (``10-draft-post``) -- the engine looks the override up by
+          ``this.config.id``. A stage seeded before ``agent_id`` existed falls
+          back to its step id, which at least fails the same way it always did.
+        * the VALUE is the model's ``provider_model_name`` (``claude-opus-4-8``),
+          the id the engine's own catalog knows, not the catalog document id
+          (``claude-opus-4-8-on-vertex``), which the engine would refuse.
+        """
+        out: dict[str, str] = {}
+        for stage in stages:
+            if not stage.model_id:
+                continue
+            try:
+                model = await self._models.get(stage.model_id)
+                provider_name = str(model.get("provider_model_name") or stage.model_id)
+            except ResourceNotFoundError:
+                # Validated on the edit that set it; a model retired since is
+                # still sent as-is so the engine's own refusal names it.
+                provider_name = stage.model_id
+            out[stage.agent_id or stage.id] = provider_name
+        return out
 
 
 def _model_references(context: AgentContext) -> list[tuple[str, str | None]]:
@@ -237,7 +273,9 @@ def _build_payload(context: AgentContext, request: DispatchRequest, run_id: str)
     )
 
 
-def to_engine_message(payload: JobPayload) -> dict[str, Any]:
+def to_engine_message(
+    payload: JobPayload, stage_models: dict[str, str] | None = None
+) -> dict[str, Any]:
     """The bytes actually published. Carries two contracts at once, on purpose.
 
     agent-engine's queue consumer validates the body against its own
@@ -262,17 +300,13 @@ def to_engine_message(payload: JobPayload) -> dict[str, Any]:
     body["clientSlug"] = payload.client_slug
     body["productId"] = payload.product_id
     body["runKind"] = payload.run_kind
-    # Per-stage model selection, flattened to the {stepId: modelId} map the
-    # engine reads. Only stages that actually name a model appear: an empty or
-    # absent map means "every stage keeps its compiled default", which is what
-    # the engine already does when the key is missing entirely.
-    stage_models = {
-        stage.id: stage.model_id
-        for stage in payload.agent.stages
-        if stage.model_id
-    }
+    # Per-stage model selection, as the {engineAgentId: providerModelName} map
+    # the engine reads (see `DispatchService._stage_models_for_engine`). Only
+    # stages that actually name a model appear: an empty or absent map means
+    # "every stage keeps its compiled default", which is what the engine
+    # already does when the key is missing entirely.
     if stage_models:
-        body["stageModels"] = stage_models
+        body["stageModels"] = dict(stage_models)
     return body
 
 
