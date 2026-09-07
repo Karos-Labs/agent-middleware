@@ -11,15 +11,23 @@ has not arrived. `config.schema_migrations` records what has been applied.
 |---|---|---|
 | `0001_config_plane.sql` | Schema, 17 tables, one view, seven guards | No — one transaction, fails atomically if already applied |
 | `0002_reference_data.sql` | `step_kinds`, `agent_classes`, `capability_policy` | Yes |
+| `0003_model_catalog.sql` | 12 priced models and the three aliases | Yes |
+| `0004_prompt_projection.sql` | The engine-projection columns S7 writes | Yes |
+| `0005_stage_source.sql` | `agents.stage_source` and the guard that follows from it (S5) | Yes |
 | `0001_config_plane_verify.sql` | Attempts every write the schema must refuse | Yes — ends in `ROLLBACK` |
+
+**Apply them in filename order, and run the verify script last.** It is
+numbered `0001_*` because it verifies `0001`'s guards, not because it runs
+second.
 
 ## Applying
 
 ```bash
-# prep
-psql "$PREP_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_config_plane.sql
-psql "$PREP_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_reference_data.sql
-psql "$PREP_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_config_plane_verify.sql
+# prep — in this order, verify last
+for f in 0001_config_plane 0002_reference_data 0003_model_catalog \
+         0004_prompt_projection 0005_stage_source 0001_config_plane_verify; do
+  psql "$PREP_DATABASE_URL" -v ON_ERROR_STOP=1 -f "migrations/$f.sql" || break
+done
 ```
 
 `ON_ERROR_STOP=1` is not optional. Without it `psql` keeps going after a
@@ -28,7 +36,16 @@ failed statement, and a half-applied migration is worse than a failed one.
 The verify script is safe to run anywhere, including prod: everything it
 writes is inside one transaction that ends in `ROLLBACK`. Run it after every
 apply. A constraint nobody has watched refuse anything is a constraint nobody
-knows is wired up.
+knows is wired up. 53 checks; it must end in `ALL CHECKS PASSED`.
+
+It has to be safe on a database with *every* migration applied, and for a
+while it was not: it created aliases called `sonnet` and `haiku`, which
+`0003` seeds, so on a fully-migrated database it aborted on a duplicate key at
+check 9c — twenty checks before the end, with an error that read like a schema
+fault rather than a name clash in the test. Its aliases are now named
+`verify-*`. The lesson generalises: a verify script that seeds anything must
+namespace it, because the one database it most needs to run on is the one that
+already has everything.
 
 ## What the database refuses
 

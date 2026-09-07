@@ -64,7 +64,11 @@ from app.api.schemas.snapshot import (
     SnapshotStep,
     SnapshotTool,
 )
-from app.core.exceptions import IncompleteAgentConfigurationError, ResourceNotFoundError
+from app.core.exceptions import (
+    IncompleteAgentConfigurationError,
+    ResourceNotFoundError,
+    StagesAreCompiledError,
+)
 from app.db.postgres import ConfigDatabase
 
 logger = logging.getLogger(__name__)
@@ -119,7 +123,7 @@ class SnapshotResolver:
         async with self._db.connection() as connection:
             agent = await connection.fetchrow(
                 """
-                select a.slug, a.agent_class_code, a.capabilities,
+                select a.slug, a.agent_class_code, a.capabilities, a.stage_source,
                        a.published_version_id, c.pinned_version_id, c.enabled
                   from agents a
                   left join client_agent_config c
@@ -136,6 +140,21 @@ class SnapshotResolver:
                 version_id, resolved_from = agent["pinned_version_id"], "client_pinned"
             elif agent["published_version_id"] is not None:
                 version_id, resolved_from = agent["published_version_id"], "published"
+            elif agent["stage_source"] == "engine_code":
+                # Not a missing publish -- an agent that CANNOT have one. Its
+                # stage list is a compiled workflow (S5 / 0005), so there is no
+                # version to freeze and the engine runs its own graph. Said
+                # separately from "publish one" because that advice is
+                # impossible to follow here, and impossible advice is how a
+                # reader concludes the tool is broken.
+                raise StagesAreCompiledError(
+                    f"agent '{agent_slug}' has stage_source 'engine_code': its stage "
+                    "list is a compiled agent-engine workflow, not configuration, so "
+                    "it has no version to freeze and no snapshot to travel. Its "
+                    "prompts, per-stage models and tool grants ARE configuration and "
+                    "are in this schema. A run of it falls back to the engine's own "
+                    "stores, which is recorded on the run as config_source 'stores'."
+                )
             else:
                 # Deliberately not a fall back to a draft: a draft is editable,
                 # and the whole contract is that a running configuration is not.

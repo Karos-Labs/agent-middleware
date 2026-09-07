@@ -435,12 +435,23 @@ begin
         raise notice 'ok 9b: the route vocabulary is closed and separate from vendor';
     end;
 
+    -- Aliases named for the test, not `sonnet`/`haiku`/`opus`.
+    --
+    -- 0003 seeds those three, so a database with the model catalog applied
+    -- already owns them and this insert collided on the primary key -- which
+    -- aborted the whole verify run at check 9c with a duplicate-key error,
+    -- twenty checks before the end. The file's own promise is that it is safe
+    -- to run anywhere, including prod, and "anywhere" includes a database that
+    -- has had every migration applied in order. It did not, and the failure
+    -- looked like a schema fault rather than a name clash in the test.
     insert into config.model_aliases (alias, model_id, provider_policy)
-    values ('sonnet', 'claude-sonnet-4-6', 'pinned'),
-           ('haiku', 'claude-haiku-4-5', 'commodity');
+    values ('verify-fast', 'claude-sonnet-4-6', 'pinned'),
+           ('verify-cheap', 'claude-haiku-4-5', 'commodity');
 
-    update config.model_aliases set model_id = 'claude-haiku-4-5' where alias = 'sonnet';
-    update config.model_aliases set model_id = 'claude-sonnet-4-6' where alias = 'sonnet';
+    update config.model_aliases set model_id = 'claude-haiku-4-5'
+     where alias = 'verify-fast';
+    update config.model_aliases set model_id = 'claude-sonnet-4-6'
+     where alias = 'verify-fast';
     raise notice 'ok 9c: an alias repoints without a redeploy, and models keep their prices';
 end $$;
 
@@ -724,6 +735,50 @@ begin
               'print(json.dumps({"ok": True}))', 30000);
 
     raise notice 'ok 14e: every field the engine actually reads has a home';
+end $$;
+
+-- --------------------------------------------------------------------
+-- 15. An agent whose stages are compiled cannot have a live version (0005)
+-- --------------------------------------------------------------------
+--
+-- The rule S5 depends on, and the reason it is a trigger rather than the
+-- importer's own discipline: an importer is one writer, and the rule has to
+-- hold against the next one -- a publish, a rollback, a hand-written UPDATE
+-- during an incident. Checked from both directions, because either column can
+-- be the write that breaks the pair.
+
+do $$
+declare
+    frozen uuid;
+begin
+    insert into config.agents (slug, name, agent_class_code, stage_source)
+    values ('compiled-agent', 'Compiled', 'drafting', 'engine_code');
+
+    insert into config.agent_versions (agent_slug, version, status, frozen_at)
+    values ('compiled-agent', 1, 'frozen', now())
+    returning id into frozen;
+
+    -- Direction one: move the pointer on an agent already marked engine_code.
+    begin
+        update config.agents set published_version_id = frozen
+         where slug = 'compiled-agent';
+        raise exception 'FAIL 15a: a compiled agent was given a published version';
+    exception when check_violation then
+        raise notice 'ok 15a: a compiled workflow cannot have a published version '
+                     '(a step list that does not match the program is worse than none)';
+    end;
+
+    -- Direction two: mark an agent engine_code while it already points at one.
+    update config.agents set stage_source = 'config' where slug = 'compiled-agent';
+    update config.agents set published_version_id = frozen where slug = 'compiled-agent';
+    begin
+        update config.agents set stage_source = 'engine_code'
+         where slug = 'compiled-agent';
+        raise exception 'FAIL 15b: an agent with a live version was marked engine_code';
+    exception when check_violation then
+        raise notice 'ok 15b: the guard holds from the other side too -- an import '
+                     'cannot orphan a pointer it did not move';
+    end;
 end $$;
 
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;
