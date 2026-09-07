@@ -13,6 +13,7 @@ from typing import Any
 from google.api_core.exceptions import AlreadyExists
 
 from app.api.schemas.agent import AgentCreate, AgentUpdate
+from app.api.schemas.presentation import ENGINE_VENDOR_TO_CATALOG_VENDORS
 from app.core.enums import AgentStatus
 from app.core.exceptions import InvalidStateError, ResourceConflictError, ResourceNotFoundError
 from app.db.firestore import AGENTS, MODELS, FirestoreDB, snapshot_to_dict, utcnow
@@ -76,14 +77,40 @@ class AgentService:
         if not wanted:
             return
         missing: list[str] = []
+        catalog_vendor: dict[str, str] = {}
         for model_id in sorted(str(m) for m in wanted):
             snapshot = await self._db.document(MODELS, model_id).get()
             if not snapshot.exists:
                 missing.append(model_id)
+                continue
+            catalog_vendor[model_id] = str((snapshot.to_dict() or {}).get("vendor") or "")
         if missing:
             raise InvalidStateError(
                 f"stage model(s) not in the models collection: {', '.join(missing)}"
             )
+        # The engine picks an adapter from the STAGE's compiled vendor, never
+        # from the model id, and `assertModelCatalogued` refuses an override
+        # whose model belongs to another vendor -- after the run has started.
+        # Refused here instead, on the edit that would introduce it, with the
+        # same rule (`ENGINE_VENDOR_TO_CATALOG_VENDORS`).
+        mismatched: list[str] = []
+        for stage in stages:
+            chosen = str(stage.get("model_id") or "")
+            engine_vendor = str(stage.get("vendor") or "")
+            if not chosen or not engine_vendor:
+                continue
+            allowed = ENGINE_VENDOR_TO_CATALOG_VENDORS.get(engine_vendor)
+            if allowed is None:
+                continue
+            if catalog_vendor.get(chosen, "") not in allowed:
+                mismatched.append(
+                    f"stage '{stage.get('id')}' runs on the engine's '{engine_vendor}' adapter "
+                    f"and cannot be pointed at '{chosen}' (vendor "
+                    f"'{catalog_vendor.get(chosen)}'); a stage override changes the model, "
+                    "never the vendor"
+                )
+        if mismatched:
+            raise InvalidStateError("; ".join(mismatched))
 
     async def update(self, agent_ref: str, payload: AgentUpdate) -> dict[str, Any]:
         agent = await self.get(agent_ref)
@@ -171,8 +198,7 @@ class AgentService:
         """
 
         agents = [
-            snapshot_to_dict(snapshot)
-            async for snapshot in self._db.collection(AGENTS).stream()
+            snapshot_to_dict(snapshot) async for snapshot in self._db.collection(AGENTS).stream()
         ]
 
         needle = query.lower().strip() if query else None
