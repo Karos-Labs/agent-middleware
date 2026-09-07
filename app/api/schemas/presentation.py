@@ -68,6 +68,36 @@ class AgentStage(BaseModel):
     #: applies it through ``AgentContext.stageModels``, resolved at the one
     #: place every agent step passes through.
     model_id: str | None = Field(default=None, max_length=128)
+    #: The engine's own id for the agent class this stage runs (``x-draft``,
+    #: ``newsletter-plan``). This, not the workflow step id, is the key
+    #: ``AgentContext.stageModels`` is read by (``applyStageModelOverride``
+    #: looks up ``this.config.id``), so a per-stage model choice keyed by the
+    #: step id alone was accepted, stored, shown and then ignored by the engine.
+    #: Absent on code steps. Generated from the agent class's ``config.id``.
+    agent_id: str | None = Field(default=None, max_length=128)
+    #: The model this stage is compiled to run when nothing overrides it, as the
+    #: engine's canonical id (``claude-opus-4-8``). A mirror of the agent
+    #: class's ``modelPolicy``, generated from source, so the Studio can say
+    #: what "engine default" means for THIS stage instead of one agent-wide
+    #: label that was wrong for every stage that did not run on Sonnet.
+    default_model: str | None = Field(default=None, max_length=128)
+    #: The engine vendor whose adapter serves this stage: ``anthropic``,
+    #: ``gemini``, ``model-garden`` or ``openai-compatible``. An override must
+    #: stay within it; the engine refuses a cross-vendor stage override, so the
+    #: control plane refuses it first (see ``AgentService``).
+    vendor: str | None = Field(default=None, max_length=64)
+
+
+#: Which catalog ``ModelVendor`` values may serve a stage wired to each engine
+#: vendor. The engine selects an adapter from ``ModelPolicy.vendor`` alone and
+#: refuses a stage override whose model belongs to another vendor; this is the
+#: same rule, checked on the edit that would introduce the mismatch.
+ENGINE_VENDOR_TO_CATALOG_VENDORS: dict[str, frozenset[str]] = {
+    "anthropic": frozenset({"anthropic"}),
+    "gemini": frozenset({"google"}),
+    "model-garden": frozenset({"meta", "other"}),
+    "openai-compatible": frozenset({"other"}),
+}
 
 
 class AgentInputDef(BaseModel):

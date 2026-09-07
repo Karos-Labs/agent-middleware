@@ -87,7 +87,7 @@ def build_services(
     app.state.feedback_service = FeedbackService(database, run_service, prompt_service)
     app.state.context_service = context_service
     app.state.dispatch_service = DispatchService(
-        settings, context_service, run_service, publisher
+        settings, context_service, run_service, publisher, model_service
     )
 
 

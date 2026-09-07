@@ -66,6 +66,12 @@ class ModelCreate(BaseModel):
     #: own pinned/portable/commodity policy vocabulary.
     tiers: list[str] = Field(default_factory=list)
     notes: str | None = None
+    #: What the engine does when the primary route for this model fails, in
+    #: words a Studio author can act on. Claude on Vertex falls over to the
+    #: same model on Anthropic's direct API and then to Gemini 2.5 Flash;
+    #: Gemini has no second transport, so a failure fails the step. A model
+    #: whose fallback is undocumented is one whose failure mode nobody chose.
+    fallback: str | None = None
 
 
 class ModelUpdate(BaseModel):
@@ -80,6 +86,7 @@ class ModelUpdate(BaseModel):
     supports_tools: bool | None = None
     tiers: list[str] | None = None
     notes: str | None = None
+    fallback: str | None = None
 
 
 class ModelRead(BaseModel):
@@ -97,6 +104,8 @@ class ModelRead(BaseModel):
     supports_tools: bool
     tiers: list[str]
     notes: str | None
+    #: Absent on rows seeded before the field existed; the Studio shows those as "not documented".
+    fallback: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -142,6 +151,7 @@ def model_document(payload: ModelCreate, now: datetime) -> dict[str, Any]:
         "supports_tools": payload.supports_tools,
         "tiers": payload.tiers,
         "notes": payload.notes,
+        "fallback": payload.fallback,
         "created_at": now,
         "updated_at": now,
     }
