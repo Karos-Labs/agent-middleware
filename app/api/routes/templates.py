@@ -26,7 +26,9 @@ from app.api.schemas.template import (
     TemplateVersionRead,
 )
 from app.core.enums import TemplateKind
+from app.core.roles import Role
 from app.dependencies import get_template_service, resolve_agent
+from app.security import require_role
 from app.services.templates import TemplateService
 
 router = APIRouter(prefix="/templates", tags=["templates"])
@@ -45,6 +47,7 @@ agent_router = APIRouter(prefix="/agents/{agent_id}/templates", tags=["templates
         "Supplying ``content`` or ``schema_definition`` also creates version 1 "
         "and activates it."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def create_template(
     payload: TemplateCreate,
@@ -106,6 +109,7 @@ async def get_template(
     response_model=TemplateRead,
     summary="Update template metadata",
     description="Bodies are versioned; post a new version to change content.",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def update_template(
     template_id: str,
@@ -120,6 +124,7 @@ async def update_template(
     "/{template_id}",
     response_model=TemplateRead,
     summary="Logically delete a template",
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def delete_template(
     template_id: str,
@@ -133,6 +138,7 @@ async def delete_template(
     "/{template_id}/restore",
     response_model=TemplateRead,
     summary="Undo a logical delete",
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def restore_template(
     template_id: str,
@@ -150,6 +156,7 @@ async def restore_template(
     response_model=TemplateVersionRead,
     status_code=status.HTTP_201_CREATED,
     summary="Publish a new template version",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def create_template_version(
     template_id: str,
@@ -191,6 +198,7 @@ async def get_template_version(
     "/{template_id}/versions/{version}/activate",
     response_model=TemplateVersionRead,
     summary="Make a template version the active one",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def activate_template_version(
     template_id: str,
@@ -225,6 +233,7 @@ async def list_agent_templates(
         "Idempotent: binding a purpose again replaces the previous choice. "
         "``purpose=primary`` is what the context endpoint resolves by default."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def bind_agent_template(
     purpose: str,
@@ -240,6 +249,7 @@ async def bind_agent_template(
     "/{purpose}",
     response_model=OperationResult,
     summary="Unbind a template from an agent",
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def unbind_agent_template(
     purpose: str,

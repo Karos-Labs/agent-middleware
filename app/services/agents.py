@@ -29,21 +29,37 @@ class AgentService:
     # --- Writes ------------------------------------------------------------
 
     async def create(self, payload: AgentCreate) -> dict[str, Any]:
+        """Persist a new agent from every field ``AgentCreate`` accepts.
+
+        The document is built by dumping the payload rather than by naming
+        fields, and that is deliberate. This method used to list eight of them
+        by hand and silently drop the other seven -- ``icon``, ``category``,
+        ``credit_cost``, ``is_public``, ``required_inputs``, ``stages`` and
+        ``stages_read_only``. They reached the catalog only through ``PATCH``
+        or the seeder, so an agent created through the API came back from the
+        catalog with no icon, no price and no inputs; and because ``AgentRead``
+        supplies a default for each one, the 201 response looked complete while
+        the stored record was not. A hand-written list is a copy of the schema
+        that nothing keeps in step, and it fell out of step.
+
+        ``mode="json"`` unwraps the nested ``AgentInputDef`` / ``AgentStage``
+        models and the ``AgentStatus`` enum into the plain JSON types Firestore
+        stores, matching the shape ``scripts/seed_all_agents.py`` writes.
+        """
+
         now = utcnow()
-        document = {
-            "slug": payload.slug,
-            "name": payload.name,
-            "description": payload.description,
-            "status": payload.status.value,
-            "agent_type": payload.agent_type,
-            "model": payload.model,
-            "model_params": payload.model_params,
-            "config": payload.config,
-            "tags": payload.tags,
+        document: dict[str, Any] = {
+            **payload.model_dump(mode="json"),
             "deleted_at": None,
             "created_at": now,
             "updated_at": now,
         }
+
+        # Validated BEFORE the write, so a rejected create leaves no row behind.
+        # Unreachable at create time until now, which meant an agent could be
+        # born naming a model nothing routes and only a later, unrelated edit
+        # would surface it.
+        await self._reject_unknown_stage_models(document["stages"])
 
         try:
             await self._db.document(AGENTS, payload.slug).create(document)

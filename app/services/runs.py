@@ -51,6 +51,7 @@ class RunService:
             input_payload=payload.input_payload,
             pubsub_message_id=payload.pubsub_message_id,
             requested_by=payload.requested_by,
+            client_slug=payload.client_slug,
         )
 
     async def create(
@@ -66,6 +67,7 @@ class RunService:
         input_payload: dict[str, Any] | None = None,
         pubsub_message_id: str | None = None,
         requested_by: str | None = None,
+        client_slug: str | None = None,
     ) -> dict[str, Any]:
         run_id = run_id or str(uuid.uuid4())
         now = utcnow()
@@ -81,6 +83,7 @@ class RunService:
             "error": None,
             "pubsub_message_id": pubsub_message_id,
             "requested_by": requested_by,
+            "client_slug": client_slug,
             "completed_at": None,
             "created_at": now,
             "updated_at": now,
@@ -148,11 +151,46 @@ class RunService:
             }
         )
 
+    async def list_for_client(
+        self,
+        client_slug: str,
+        *,
+        status: RunStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Every run for one tenant, across all agents, newest first.
+
+        The query the ticket exists for. Attributing a run to a client after the
+        fact was impossible not because the listing was missing but because the
+        field was: this is the half that makes the stored value useful, and
+        without it `client_slug` would be a column nobody can search.
+
+        Deliberately NOT agent-scoped. "Which runs did we do for this client
+        this month, and what did they cost" is a question about a tenant, and
+        answering it by looping thirteen agent-scoped listings is thirteen
+        queries and a merge in the caller.
+        """
+
+        query = self._db.collection(RUNS).where(
+            filter=FieldFilter("client_slug", "==", client_slug)
+        )
+        if status is not None:
+            query = query.where(filter=FieldFilter("status", "==", status.value))
+
+        query = query.order_by("created_at", direction="DESCENDING")
+        if offset:
+            query = query.offset(offset)
+
+        runs = [snapshot_to_dict(snapshot) async for snapshot in query.limit(limit + 1).stream()]
+        return runs[:limit], len(runs) > limit
+
     async def list_for_agent(
         self,
         agent_id: str,
         *,
         status: RunStatus | None = None,
+        client_slug: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], bool]:
@@ -165,6 +203,8 @@ class RunService:
         query = self._db.collection(RUNS).where(filter=FieldFilter("agent_id", "==", agent_id))
         if status is not None:
             query = query.where(filter=FieldFilter("status", "==", status.value))
+        if client_slug is not None:
+            query = query.where(filter=FieldFilter("client_slug", "==", client_slug))
 
         query = query.order_by("created_at", direction="DESCENDING")
         if offset:

@@ -20,7 +20,9 @@ from app.api.schemas.prompt import (
     SystemPromptRead,
 )
 from app.core.enums import ExampleSource
+from app.core.roles import Role
 from app.dependencies import get_prompt_service, resolve_agent
+from app.security import CallerIdentity, require_role
 from app.services.prompts import PromptService
 
 router = APIRouter(prefix="/agents/{agent_id}", tags=["prompts"])
@@ -37,10 +39,11 @@ router = APIRouter(prefix="/agents/{agent_id}", tags=["prompts"])
 )
 async def create_prompt_version(
     payload: SystemPromptCreate,
+    identity: CallerIdentity = Depends(require_role(Role.EDITOR)),
     agent: dict[str, Any] = Depends(resolve_agent),
     prompts: PromptService = Depends(get_prompt_service),
 ) -> SystemPromptRead:
-    prompt = await prompts.create_version(agent["id"], payload)
+    prompt = await prompts.create_version(agent["id"], payload, identity.actor)
     return SystemPromptRead.model_validate(prompt)
 
 
@@ -89,6 +92,7 @@ async def get_prompt_version(
     response_model=SystemPromptRead,
     summary="Make a version the active one",
     description="Also used to roll back: activate an older version.",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def activate_prompt_version(
     version: int,
@@ -107,6 +111,7 @@ async def activate_prompt_version(
     response_model=FewShotExampleRead,
     status_code=status.HTTP_201_CREATED,
     summary="Add a few-shot example",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def create_example(
     payload: FewShotExampleCreate,
@@ -165,6 +170,7 @@ async def get_example(
     "/examples/{example_id}",
     response_model=FewShotExampleRead,
     summary="Edit a few-shot example",
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def update_example(
     example_id: str,
@@ -184,6 +190,7 @@ async def update_example(
         "Examples are disposable teaching material, so this really removes the "
         "document. Set ``is_active=false`` instead to keep it for reference."
     ),
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def delete_example(
     example_id: str,

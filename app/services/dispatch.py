@@ -21,9 +21,10 @@ from app.api.schemas.context import (
 )
 from app.config import Settings
 from app.core.enums import RunStatus
-from app.core.exceptions import MessagePublishError
+from app.core.exceptions import IncompleteAgentConfigurationError, MessagePublishError
 from app.db.firestore import utcnow
 from app.services.context import ContextService
+from app.services.models import ModelService
 from app.services.publisher import PublisherService
 from app.services.runs import RunService
 
@@ -39,18 +40,81 @@ class DispatchService:
         context: ContextService,
         runs: RunService,
         publisher: PublisherService,
+        models: ModelService,
     ) -> None:
         self._settings = settings
         self._context = context
         self._runs = runs
         self._publisher = publisher
+        self._models = models
 
     @property
     def topic_path(self) -> str:
         return self._publisher.topic_path_for(self._settings.job_topic_id)
 
+    async def _refuse_unpriceable_models(self, context: AgentContext) -> None:
+        """Refuse a job whose agent names a model the catalog cannot price.
+
+        S12 (SCRUM-222). Both cost paths in the platform answer an unknown
+        model with Sonnet's $3/$15 and no signal: `pricingForModel` in the
+        engine falls back to `DEFAULT_MODEL_PRICING`, and `computeCostUsd` in
+        the portal to `MODEL_PRICING._default`. So a model with no row does not
+        produce an error, it produces a plausible wrong number in every cost
+        report that touches it -- which is the worst failure available here,
+        because nothing about it looks broken.
+
+        This is the earliest place that can be prevented: an unpriceable model
+        never reaches the queue, so no run exists whose cost cannot be
+        computed. Checked before the run document is written, so a refused
+        dispatch leaves nothing behind.
+
+        Off by default -- see `Settings.model_pricing_enforced` for why, and
+        note that the WARNING below is what makes the gap visible while it is
+        off. A log line naming the agent and the stage is a different thing
+        from silence.
+        """
+
+        references = _model_references(context)
+        if not references:
+            return
+
+        priced = await self._models.priced_model_ids()
+        gaps = [(model_id, stage_id) for model_id, stage_id in references if model_id not in priced]
+        if not gaps:
+            return
+
+        detail = ", ".join(
+            f"{model_id} (stage {stage_id})" if stage_id else f"{model_id} (agent default)"
+            for model_id, stage_id in gaps
+        )
+        if not self._settings.model_pricing_enforced:
+            logger.warning(
+                "dispatching agent %s with %d unpriceable model reference(s): %s -- "
+                "every step on them will be costed at the fallback price. Seed the "
+                "catalog (scripts/seed_model_catalog.py) and set "
+                "MODEL_PRICING_ENFORCED=true.",
+                context.agent.slug,
+                len(gaps),
+                detail,
+                extra={"agent_slug": context.agent.slug, "unpriced_models": detail},
+            )
+            return
+
+        raise IncompleteAgentConfigurationError(
+            f"agent '{context.agent.slug}' names {len(gaps)} model(s) the catalog cannot "
+            f"price: {detail}. A run on an unpriced model cannot be costed, so it is "
+            f"refused rather than billed at a fallback rate. Register the model with a "
+            f"price (POST /models) or point the stage at one that has one; "
+            f"GET /models/pricing-coverage lists every gap."
+        )
+
     async def build_preview(self, agent_ref: str, request: DispatchRequest) -> JobPayload:
-        """Build the payload a dispatch would publish, without any side effects."""
+        """Build the payload a dispatch would publish, without any side effects.
+
+        Runs the same pricing guard as a real dispatch. A preview whose whole
+        job is to show what WOULD be published should not show a payload that
+        would be refused.
+        """
 
         context = await self._context.build_runnable(
             agent_ref,
@@ -59,6 +123,7 @@ class DispatchService:
             include_examples=request.include_examples,
             max_examples=request.max_examples,
         )
+        await self._refuse_unpriceable_models(context)
         return _build_payload(context, request, request.run_id or "preview")
 
     async def dispatch(
@@ -80,6 +145,10 @@ class DispatchService:
             max_examples=request.max_examples,
         )
 
+        # Before the run document exists: a refused dispatch should leave no
+        # trace, not a failed run someone has to explain.
+        await self._refuse_unpriceable_models(context)
+
         run_id = request.run_id or str(uuid.uuid4())
         payload = _build_payload(context, request, run_id)
 
@@ -96,6 +165,10 @@ class DispatchService:
             # from them without copying bodies into every run document.
             input_payload=_run_snapshot(context, request),
             requested_by=request.requested_by,
+            # The one field that made a run unattributable. It was already on the
+            # request -- required there, because the engine resolves the whole
+            # workspace from it -- and simply never reached the document.
+            client_slug=request.client_slug,
         )
 
         try:
@@ -124,6 +197,22 @@ class DispatchService:
             }
         )
         return run, payload, message_id
+
+
+def _model_references(context: AgentContext) -> list[tuple[str, str | None]]:
+    """Every (model_id, stage_id) this job would run on.
+
+    The agent's own default plus any stage that overrides it. Stage id is None
+    for the default, which is what makes the error message say where to look.
+    """
+
+    references: list[tuple[str, str | None]] = []
+    if context.agent.model:
+        references.append((context.agent.model, None))
+    for stage in context.agent.stages:
+        if stage.model_id:
+            references.append((stage.model_id, stage.id))
+    return references
 
 
 def _build_payload(context: AgentContext, request: DispatchRequest, run_id: str) -> JobPayload:

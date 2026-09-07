@@ -27,7 +27,18 @@ from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from app.api.routes import agents, context, engine_prompts, health, models, prompts, runs, templates
+from app.api.routes import (
+    agents,
+    clients,
+    configuration,
+    context,
+    engine_prompts,
+    health,
+    models,
+    prompts,
+    runs,
+    templates,
+)
 from app.config import Settings, get_settings
 from app.core.exceptions import (
     IncompleteAgentConfigurationError,
@@ -35,16 +46,24 @@ from app.core.exceptions import (
     MessagePublishError,
     ResourceConflictError,
     ResourceNotFoundError,
+    ServiceUnavailableError,
+    ValidationRefusedError,
 )
+from app.core.roles import Role
 from app.db.firestore import FirestoreDB
+from app.db.postgres import ConfigDatabase, build_config_database
+from app.db.workspace import WorkspaceStore, build_workspace_store
 from app.logging_config import configure_logging
-from app.security import require_service_identity
+from app.security import require_role, require_service_identity
 from app.services.agents import AgentService
+from app.services.client_context import ClientContextProjector
+from app.services.configuration import ConfigurationService
 from app.services.context import ContextService
 from app.services.dispatch import DispatchService
 from app.services.engine_prompts import EnginePromptService
 from app.services.feedback import FeedbackService
 from app.services.models import ModelService
+from app.services.prompt_store import UnifiedPromptStore
 from app.services.prompts import PromptService
 from app.services.publisher import PublisherService
 from app.services.runs import RunService
@@ -58,18 +77,33 @@ def build_services(
     settings: Settings,
     database: FirestoreDB,
     publisher: PublisherService | None = None,
+    config_database: ConfigDatabase | None = None,
+    workspace: WorkspaceStore | None = None,
 ) -> None:
     """Construct every service once and attach it to ``app.state``.
 
     Request handlers reach these through ``app.dependencies``, so no handler ever
-    builds a Firestore or Pub/Sub client of its own. ``publisher`` is injectable
-    so tests can wire a fake Pub/Sub client without patching module globals.
+    builds a Firestore or Pub/Sub client of its own. ``publisher`` and
+    ``workspace`` are injectable so tests can wire fakes without patching
+    module globals -- the same arrangement, and the same reason, as Pub/Sub.
+
+    ``config_database`` is optional and stays optional: the Configuration API
+    (S4) needs Cloud SQL, which does not exist in every environment yet, and a
+    control plane that refused to start without it would make the Postgres
+    migration a flag day for routes that have nothing to do with it. Its routes
+    report 503 with the reason; everything else is unaffected.
     """
 
     publisher = publisher or PublisherService(settings)
+    workspace = workspace if workspace is not None else build_workspace_store(settings)
     agent_service = AgentService(database)
     prompt_service = PromptService(database)
-    engine_prompt_service = EnginePromptService(database)
+    prompt_store = (
+        UnifiedPromptStore(config_database, database)
+        if config_database is not None
+        else None
+    )
+    engine_prompt_service = EnginePromptService(database, store=prompt_store)
     template_service = TemplateService(database)
     model_service = ModelService(database)
     run_service = RunService(database)
@@ -87,7 +121,21 @@ def build_services(
     app.state.feedback_service = FeedbackService(database, run_service, prompt_service)
     app.state.context_service = context_service
     app.state.dispatch_service = DispatchService(
-        settings, context_service, run_service, publisher
+        settings, context_service, run_service, publisher, model_service
+    )
+    app.state.config_database = config_database
+    app.state.configuration_service = (
+        ConfigurationService(config_database) if config_database is not None else None
+    )
+    app.state.config_database = config_database
+    app.state.prompt_store = prompt_store
+    app.state.configuration_service = (
+        ConfigurationService(config_database) if config_database is not None else None
+    )
+    # None when no bucket is configured, which is the local default. The two
+    # routes that need it answer 503 naming the variable; nothing else cares.
+    app.state.projector = (
+        ClientContextProjector(database, workspace) if workspace is not None else None
     )
 
 
@@ -97,7 +145,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
 
     database = FirestoreDB(settings)
-    build_services(app, settings, database)
+    config_database = await build_config_database(settings)
+    build_services(app, settings, database, config_database=config_database)
 
     if not settings.auth_enabled:
         logger.warning(
@@ -111,6 +160,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.environment,
         )
 
+    if settings.role_bindings_missing:
+        # Loud, because nothing else surfaces it: authorization is switched off
+        # while looking switched on. Every verified caller holds admin, exactly
+        # as before roles existed, and the first binding is what makes the model
+        # start enforcing.
+        logger.error(
+            "AUTH_ROLE_BINDINGS is empty while authentication is enabled: "
+            "authorization is NOT being enforced and every verified caller holds "
+            "admin. Bind the calling service accounts (AUTH_ROLE_BINDINGS) to turn "
+            "it on; unbound callers then fall to AUTH_DEFAULT_ROLE=%s.",
+            settings.auth_default_role.value,
+        )
+
     logger.info(
         "%s started (environment=%s, firestore=%s/%s, job_topic=%s, auth=%s)",
         settings.app_name,
@@ -120,12 +182,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.job_topic_id,
         "enabled" if settings.auth_enabled else "disabled",
     )
+    logger.info(
+        "authorization: %s (%d role binding(s), default role %s)",
+        "enforcing" if settings.auth_role_bindings else "NOT ENFORCING (no bindings)",
+        len(settings.auth_role_bindings),
+        settings.auth_default_role.value,
+    )
+    if config_database is not None:
+        logger.info(
+            "configuration database connected (pool %d-%d)",
+            settings.config_db_pool_min_size,
+            settings.config_db_pool_max_size,
+        )
+
     try:
         yield
     finally:
         logger.info("Shutting down %s", settings.app_name)
         app.state.publisher.close()
         database.close()
+        if config_database is not None:
+            await config_database.close()
 
 
 def create_app() -> FastAPI:
@@ -146,7 +223,10 @@ def create_app() -> FastAPI:
     # It exposes only reachability booleans, never data.
     app.include_router(health.router)
 
-    protected = [Depends(require_service_identity)]
+    # Every protected route requires at least `viewer`; writes name a higher
+    # minimum on the route itself. Authentication and the read floor belong
+    # together here so a new router cannot be added without either.
+    protected = [Depends(require_service_identity), Depends(require_role(Role.VIEWER))]
     app.include_router(agents.router, dependencies=protected)
     app.include_router(prompts.router, dependencies=protected)
     app.include_router(engine_prompts.router, dependencies=protected)
@@ -155,6 +235,9 @@ def create_app() -> FastAPI:
     app.include_router(models.router, dependencies=protected)
     app.include_router(context.router, dependencies=protected)
     app.include_router(runs.router, dependencies=protected)
+    app.include_router(runs.client_router, dependencies=protected)
+    app.include_router(clients.router, dependencies=protected)
+    app.include_router(configuration.router, dependencies=protected)
 
     register_exception_handlers(app)
     return app
@@ -183,6 +266,28 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": str(exc)}
+        )
+
+    @app.exception_handler(ValidationRefusedError)
+    async def handle_validation_refused(
+        _: Request, exc: ValidationRefusedError
+    ) -> JSONResponse:
+        """A publish that would produce a broken version.
+
+        422 with every problem, not the first: the caller is meant to fix all
+        of them in one pass. `detail` stays a string so a client that only
+        renders that keeps working.
+        """
+
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": str(exc), "problems": exc.problems},
+        )
+
+    @app.exception_handler(ServiceUnavailableError)
+    async def handle_unavailable(_: Request, exc: ServiceUnavailableError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(exc)}
         )
 
     @app.exception_handler(ValidationError)

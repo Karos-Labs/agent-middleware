@@ -25,11 +25,20 @@ from app.api.schemas.run import (
     RunUpdate,
 )
 from app.core.enums import FeedbackStatus, RunStatus
+from app.core.roles import Role
 from app.dependencies import get_feedback_service, get_run_service, resolve_agent
+from app.security import require_role
 from app.services.feedback import FeedbackService
 from app.services.runs import RunService
 
 router = APIRouter(prefix="/agents/{agent_id}", tags=["runs & feedback"])
+
+#: Tenant-scoped rather than agent-scoped, so a run can be attributed to a
+#: client without knowing which agent produced it. Same module as the
+#: agent-scoped routes because it is the same collection and the same
+#: service; a second router only because the path prefix differs -- the
+#: arrangement templates.py already uses.
+client_router = APIRouter(prefix="/clients", tags=["runs & feedback"])
 
 
 # --- Runs ------------------------------------------------------------------
@@ -46,6 +55,7 @@ router = APIRouter(prefix="/agents/{agent_id}", tags=["runs & feedback"])
         "used. Dispatching through ``POST /agents/{agent_id}/jobs`` does this "
         "automatically."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def register_run(
     payload: RunCreate,
@@ -64,11 +74,18 @@ async def register_run(
 async def list_runs(
     page: Pagination = Depends(pagination),
     run_status: Annotated[RunStatus | None, Query(alias="status")] = None,
+    client_slug: Annotated[
+        str | None, Query(description="Only this tenant's runs of this agent")
+    ] = None,
     agent: dict[str, Any] = Depends(resolve_agent),
     runs: RunService = Depends(get_run_service),
 ) -> Page[RunRead]:
     items, has_more = await runs.list_for_agent(
-        agent["id"], status=run_status, limit=page.limit, offset=page.offset
+        agent["id"],
+        status=run_status,
+        client_slug=client_slug,
+        limit=page.limit,
+        offset=page.offset,
     )
     return Page[RunRead](
         items=parse_rows(RunRead, items, collection="agent_runs"),
@@ -102,6 +119,7 @@ async def get_run(
         "The engine (or the portal on its behalf) reports status, the produced "
         "artifact, or an error. A terminal status stamps ``completed_at``."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def update_run(
     run_id: str,
@@ -126,6 +144,7 @@ async def update_run(
         "and optionally the corrected output. Several reviewers may each leave "
         "feedback on the same run."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def create_feedback(
     run_id: str,
@@ -221,6 +240,7 @@ async def list_feedback_examples(
         "Creates an active example from the reviewer's corrected output (or the "
         "run's own output) and links it back to the feedback it came from."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def promote_feedback(
     feedback_id: str,
@@ -230,3 +250,29 @@ async def promote_feedback(
 ) -> FewShotExampleRead:
     example = await feedback.promote(agent["id"], feedback_id, payload)
     return FewShotExampleRead.model_validate(example)
+
+
+@client_router.get(
+    "/{client_slug}/runs",
+    response_model=Page[RunRead],
+    summary="Every run for one tenant, across all agents",
+    description=(
+        "Runs dispatched before `client_slug` was stored are absent from this listing and "
+        "cannot be recovered: nothing else on a run document names a tenant."
+    ),
+)
+async def list_client_runs(
+    client_slug: str,
+    page: Pagination = Depends(pagination),
+    run_status: Annotated[RunStatus | None, Query(alias="status")] = None,
+    runs: RunService = Depends(get_run_service),
+) -> Page[RunRead]:
+    items, has_more = await runs.list_for_client(
+        client_slug, status=run_status, limit=page.limit, offset=page.offset
+    )
+    return Page[RunRead](
+        items=parse_rows(RunRead, items, collection="agent_runs"),
+        limit=page.limit,
+        offset=page.offset,
+        has_more=has_more,
+    )

@@ -107,3 +107,147 @@ def test_list_agents_paginates(client: TestClient) -> None:
     second = client.get("/agents?limit=2&offset=2").json()
     assert len(second["items"]) == 1
     assert second["has_more"] is False
+
+
+# --- POST /agents must persist everything AgentCreate accepts ---------------
+#
+# The bug these guard: `AgentService.create` built its document from eight
+# fields and dropped the other seven on the floor. They were only ever
+# persisted by PATCH or by the seeder, so an agent created through the API came
+# out of the catalog with no icon, no category, no price, no inputs and no
+# stages -- and, because AgentRead supplies defaults for every one of them, the
+# 201 response looked plausible while the stored record was missing half of it.
+
+
+def _full_agent_payload() -> dict[str, Any]:
+    """Every field ``AgentCreate`` accepts, each set to a non-default value.
+
+    Non-default matters: a field left at its default cannot distinguish
+    "persisted correctly" from "dropped and re-defaulted on the way out", which
+    is exactly how this bug stayed invisible.
+    """
+
+    return {
+        "slug": "full-agent",
+        "name": "Full Agent",
+        "description": "Every field populated",
+        "status": "disabled",
+        "agent_type": "post_writer",
+        "model": "claude-opus-5",
+        "model_params": {"temperature": 0.4},
+        "config": {"lane": "founder"},
+        "tags": ["content", "social"],
+        "icon": "Camera",
+        "category": "social",
+        "credit_cost": 12,
+        "is_public": False,
+        "required_inputs": [
+            {
+                "key": "requestedLane",
+                "type": "select",
+                "label": "Lane",
+                "help_text": "Which lane to draft for",
+                "required": True,
+                "placeholder": "founder",
+                "options": ["founder", "company"],
+            }
+        ],
+        "stages": [
+            {
+                "id": "01-draft",
+                "label": "Draft",
+                "description": "Write the post",
+                # A gate stage, so is_gate and gate_kind are both non-default
+                # too: a stage recorded as ordinary code when it actually waits
+                # for a person is the bug the generator fix removes, and this
+                # is the round trip that proves the fields survive a create.
+                "is_gate": True,
+                "gate_kind": "batch_review",
+                "kind": "gate",
+                "skill_ref": "x-draft@3",
+                "model_id": None,
+            }
+        ],
+        "stages_read_only": False,
+        # --- C4 descriptor fields ---
+        "capabilities": ["draft_social_post"],
+        "platforms": ["x"],
+        "consumes_media": True,
+        "supports_target_date": True,
+        "custom_agent_keys": ["karos-x-agent-v2"],
+        "gates": ["batch_review"],
+        "readiness": {
+            "hard": ["client/profile", "client/config:xHandle"],
+            "soft": ["topics/catalog"],
+        },
+    }
+
+
+def test_the_full_payload_covers_every_field_the_schema_accepts() -> None:
+    """The guard that stops this bug coming back for agent number sixteen.
+
+    Adding a field to ``AgentCreate`` without adding it here fails this test,
+    and the round-trip test below is what then forces ``create`` to persist it.
+    Without this assertion the round-trip test silently stops covering new
+    fields the moment one is added.
+    """
+
+    from app.api.schemas.agent import AgentCreate
+
+    assert set(_full_agent_payload()) == set(AgentCreate.model_fields)
+
+
+def test_create_persists_every_field_rather_than_echoing_defaults(
+    client: TestClient,
+) -> None:
+    payload = _full_agent_payload()
+
+    created = client.post("/agents", json=payload)
+    assert created.status_code == 201, created.text
+
+    # Read it back rather than trusting the 201 body: the response is built
+    # from what create() returned, and the whole failure was that the returned
+    # dict and the stored document were not the same thing.
+    stored = client.get(f"/agents/{payload['slug']}")
+    assert stored.status_code == 200, stored.text
+    body = stored.json()
+
+    for field, expected in payload.items():
+        assert body[field] == expected, f"{field} was not persisted"
+
+
+def test_create_refuses_a_stage_naming_a_model_the_catalog_does_not_have(
+    client: TestClient,
+) -> None:
+    # PATCH has refused this since the models collection existed; create could
+    # not, because it never looked at stages at all. An agent could therefore
+    # be born pointing at a model nothing routes, and only a later unrelated
+    # edit would surface it.
+    payload = _full_agent_payload()
+    payload["stages"][0]["model_id"] = "claude-sonnet-9-imaginary"
+
+    response = client.post("/agents", json=payload)
+
+    assert response.status_code == 409, response.text
+    assert "claude-sonnet-9-imaginary" in response.json()["detail"]
+    # ...and nothing was written: a rejected create must not leave a partial row.
+    assert client.get(f"/agents/{payload['slug']}").status_code == 404
+
+
+def test_create_accepts_a_stage_naming_a_model_that_exists(client: TestClient) -> None:
+    from tests.test_models import make_model
+
+    make_model(
+        client,
+        model_id="claude-haiku-4-5",
+        display_name="Claude Haiku 4.5",
+        provider_model_name="claude-haiku-4-5@20251001",
+    )
+
+    payload = _full_agent_payload()
+    payload["stages"][0]["model_id"] = "claude-haiku-4-5"
+
+    response = client.post("/agents", json=payload)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["stages"][0]["model_id"] == "claude-haiku-4-5"

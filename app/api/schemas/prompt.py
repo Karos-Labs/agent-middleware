@@ -21,7 +21,10 @@ class SystemPromptCreate(BaseModel):
     content: str = Field(min_length=1)
     notes: str | None = Field(default=None, description="Changelog for this version")
     variables: list[str] = Field(default_factory=list)
-    created_by: str | None = Field(default=None, max_length=255)
+    #: NOT accepted from the caller. `created_by` is stamped from the verified
+    #: identity in the route, because a self-reported author on an audit record
+    #: is decoration. Retained on `SystemPromptRead` below, which is where it is
+    #: read back from.
     activate: bool = Field(default=True, description="Make this the active version")
 
 

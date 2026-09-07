@@ -20,6 +20,11 @@ def make_model(client: TestClient, **overrides: Any) -> dict[str, Any]:
         "provider_model_name": "gemini-2.5-pro",
         "region": "us-central1",
         "tiers": ["pinned", "portable"],
+        # Required as of S12: a model with no price is the row that made every
+        # cost path fall through to Sonnet's $3/$15 without saying so.
+        "input_per_1m": 1.25,
+        "output_per_1m": 10.0,
+        "pricing_checked_on": "2026-09-04",
     }
     payload.update(overrides)
     response = client.post("/models", json=payload)
@@ -44,6 +49,9 @@ def test_registering_the_same_model_twice_conflicts(client: TestClient) -> None:
             "display_name": "Duplicate",
             "vendor": "google",
             "provider_model_name": "gemini-2.5-pro",
+            "input_per_1m": 1.25,
+            "output_per_1m": 10.0,
+            "pricing_checked_on": "2026-09-04",
         },
     ).status_code == 409
 

@@ -93,13 +93,20 @@ def test_saving_keeps_the_superseded_text(
     # kept where the engine cannot see it: the engine reads only latestVersion
     # off the prompt document.
     publish(fake_firestore_client, settings, "x-craft", "2", "first")
+    # `?actor=` is deliberately still sent here: it is what the portal sends
+    # today, and the point of the assertion below is that the server no longer
+    # believes it.
     client.put("/engine-prompts/x-craft/versions/2?actor=tomer", json={"content": "second"})
     client.put("/engine-prompts/x-craft/versions/2", json={"content": "third"})
 
     history = client.get("/engine-prompts/x-craft/history").json()
 
     assert [h["content"] for h in history] == ["first", "second"]
-    assert history[0]["replaced_by"] == "tomer"
+    # The actor is the VERIFIED caller, never the query string. This suite runs
+    # with auth_enabled=False, so every caller is the anonymous identity -- and
+    # a request that asked to be recorded as "tomer" is not.
+    assert history[0]["replaced_by"] == "anonymous"
+    assert history[1]["replaced_by"] == "anonymous"
 
 
 def test_an_identical_save_does_not_add_history(

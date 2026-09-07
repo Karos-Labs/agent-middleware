@@ -16,13 +16,18 @@ instagram-agent run at step 03.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from scripts.seed_client_context import (
+    PROJECTED_DOC_TYPES,
     TOPIC_DEFAULT_LANE,
     TOPIC_LANE_FLOOR,
     TOPIC_SUBJECT_TEMPLATES,
+    build_competitors,
+    build_context_record,
     build_profile,
+    context_record_is_current,
     skeleton_extras,
     skeleton_topics_catalog,
 )
@@ -120,3 +125,209 @@ class TestProfileProjection:
 
     def test_an_absent_industry_stays_absent_rather_than_becoming_a_guess(self) -> None:
         assert "industry" not in build_profile({"name": "Nameless", "agentsRepoSlug": "n"})
+
+
+# --- Context document projection (C1) ---------------------------------------
+#
+# docs/contracts/C1-client-context.md. These test the builders, in the same
+# spirit as the topic catalog above: the I/O half is blob writes behind an
+# exists() check, and everything that can go wrong in a way an agent would feel
+# is a decision made in these functions.
+
+
+PROJECTED_AT = "2026-08-27T09:00:00Z"
+
+
+def _doc(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "clientId": "client-1",
+        "docType": "brand-voice",
+        "tier": "internal",
+        "content": "# Brand voice\n\nWarm, direct, never breathless.",
+        "version": 7,
+    }
+    base.update(overrides)
+    return base
+
+
+def _record(**overrides: Any) -> dict[str, Any] | None:
+    return build_context_record(
+        _doc(**overrides),
+        doc_type=overrides.get("docType", "brand-voice"),
+        firestore_doc_id="ctx-abc",
+        projected_at=PROJECTED_AT,
+        projected_by="seed-cli",
+    )
+
+
+class TestContextRecord:
+    def test_carries_the_full_provenance_the_freshness_report_reads(self) -> None:
+        record = _record()
+        assert record is not None
+        assert record["docType"] == "brand-voice"
+        assert record["markdown"].startswith("# Brand voice")
+
+        source = record["source"]
+        # Every one of these is read by something: docVersion by the freshness
+        # comparison, contentHash by the idempotency check, tier by anyone
+        # asking which half of a two-tier document reached the model.
+        assert source["firestoreDocId"] == "ctx-abc"
+        assert source["docVersion"] == 7
+        assert source["tier"] == "internal"
+        assert source["projectedAt"] == PROJECTED_AT
+        assert source["projectedBy"] == "seed-cli"
+        assert source["contentHash"].startswith("sha256:")
+
+    def test_the_field_is_markdown_not_content(self) -> None:
+        # Firestore calls it `content`; the workspace envelope calls it
+        # `markdown`, matching StrategyDocument. Renaming it in one place is
+        # the point -- the alternative is a third prose shape in the workspace.
+        record = _record()
+        assert record is not None
+        assert "markdown" in record and "content" not in record
+
+    def test_a_client_tier_document_is_never_projected(self) -> None:
+        # The one that would be invisible in production: the client tier is a
+        # condensed ~50% derivative, so an agent grounded on it produces
+        # thinner work while looking fully configured.
+        assert _record(tier="client") is None
+
+    def test_an_internal_only_document_is_never_projected(self) -> None:
+        # client-guidelines and action-plan live here. They are out of v1
+        # because publishing them to an agent is a product decision.
+        assert _record(tier="internal-only", docType="action-plan") is None
+
+    def test_an_empty_document_is_refused_like_a_missing_one(self) -> None:
+        # client.getStrategy's own reason, which this adopts verbatim: "an
+        # empty document is worse than a missing one: it would silently hand
+        # the model no charter while looking configured".
+        assert _record(content="") is None
+        assert _record(content="   \n\t  ") is None
+        assert _record(content=None) is None
+
+    def test_an_unknown_version_projects_as_permanently_stale(self) -> None:
+        # Fails toward loud rather than toward lost: the content is real and
+        # worth having, and 0 sorts below every real version, so the readiness
+        # report shows it stale until the next portal write bumps it.
+        record = _record(version=None)
+        assert record is not None
+        assert record["source"]["docVersion"] == 0
+
+    def test_every_projected_doc_type_is_a_real_portal_doc_type(self) -> None:
+        # Guards against a typo becoming a document that is never found. These
+        # nine are the ContextDocType union in karosCMO minus meeting-notes
+        # (noisy) and the two internal-only ones.
+        assert len(PROJECTED_DOC_TYPES) == 9
+        assert set(PROJECTED_DOC_TYPES) == {
+            "brand-voice",
+            "market-strategy",
+            "competitor-analysis",
+            "product-information",
+            "branding-guidelines",
+            "target-audience",
+            "x-agent-profile",
+            "linkedin-agent-profile",
+            "reddit-agent-profile",
+        }
+
+
+class TestContextIdempotency:
+    def test_identical_content_is_a_no_op_even_in_a_later_run(self) -> None:
+        # THE test for this half. The hash covers the markdown alone, so a
+        # second pass matches despite a different projectedAt. Hashing the
+        # serialized record -- which is what the client/* records do -- could
+        # never match once the envelope carries a timestamp, every run would
+        # count as an update, and projectedAt would churn on every pass,
+        # destroying the field the freshness report reads.
+        first = _record()
+        assert first is not None
+        stored = json.dumps(first)
+
+        later = build_context_record(
+            _doc(),
+            doc_type="brand-voice",
+            firestore_doc_id="ctx-abc",
+            projected_at="2026-12-25T18:30:00Z",
+            projected_by="backfill",
+        )
+        assert later is not None
+        assert context_record_is_current(stored, later)
+
+    def test_changed_content_is_not_current(self) -> None:
+        first = _record()
+        assert first is not None
+        changed = _record(content="# Brand voice\n\nCold and clipped.")
+        assert changed is not None
+        assert not context_record_is_current(json.dumps(first), changed)
+
+    def test_a_bumped_version_alone_still_rewrites(self) -> None:
+        # Found by writing this test, and it changed the implementation.
+        # ClientContextDoc.version is bumped on EVERY portal write and a write
+        # need not change the text. Treating identical markdown at version 8 as
+        # current would leave the stored provenance claiming 7 forever, and the
+        # freshness report compares exactly those two numbers -- so that
+        # document would read stale for the rest of its life. A permanent false
+        # stale costs more than a redundant one-kilobyte write, because the
+        # report is only worth reading if a "stale" line means something.
+        first = _record(version=7)
+        assert first is not None
+        bumped = _record(version=8)
+        assert bumped is not None
+        assert not context_record_is_current(json.dumps(first), bumped)
+
+    def test_identical_content_at_the_same_version_is_still_a_no_op(self) -> None:
+        # ...and the tightening above must not have cost the property it
+        # protects: an unchanged document projected twice writes nothing.
+        first = _record(version=7)
+        assert first is not None
+        assert context_record_is_current(json.dumps(first), _record(version=7))
+
+    def test_a_missing_or_unreadable_target_is_not_current(self) -> None:
+        candidate = _record()
+        assert candidate is not None
+        assert not context_record_is_current(None, candidate)
+        assert not context_record_is_current("", candidate)
+        assert not context_record_is_current("{ this is not json", candidate)
+        assert not context_record_is_current("[]", candidate)
+        assert not context_record_is_current('{"markdown": "no source block"}', candidate)
+
+
+class TestCompetitors:
+    def test_maps_the_portal_columns_onto_the_tool_interface(self) -> None:
+        rows = [
+            {
+                "id": "row-1",
+                "clientId": "client-1",
+                "company": "Acme Capital",
+                "url": "https://acme.example",
+                "marketTier": "Leader",
+                "overlap": "High",
+                "keyStrengths": ["distribution"],
+                "source": "report",
+            }
+        ]
+
+        out = build_competitors(rows)
+
+        assert out == [
+            {
+                "name": "Acme Capital",
+                "website": "https://acme.example",
+                "marketTier": "Leader",
+                "overlap": "High",
+                "keyStrengths": ["distribution"],
+            }
+        ]
+        # Portal bookkeeping does not reach a prompt: everything in this record
+        # is passed to the model verbatim by client.listCompetitors.
+        assert "id" not in out[0] and "clientId" not in out[0] and "source" not in out[0]
+
+    def test_a_row_with_no_company_is_dropped(self) -> None:
+        # The name is the identity. A nameless competitor in a prompt is an
+        # invitation to write about nobody.
+        assert build_competitors([{"url": "https://x.example"}]) == []
+        assert build_competitors([{"company": "   "}]) == []
+
+    def test_absent_fields_stay_absent(self) -> None:
+        out = build_competitors([{"company": "Solo"}])
+        assert out == [{"name": "Solo"}]

@@ -23,6 +23,26 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.core.enums import Capability
+
+
+class AgentReadiness(BaseModel):
+    """Workspace records a client needs before this agent can run.
+
+    Paths under ``clients/<slug>/``, in the vocabulary
+    ``report_client_readiness.py`` already uses -- ``client/profile``,
+    ``client/config:xHandle``, ``strategy/x-agent``, ``topics/catalog``.
+
+    ``hard`` stops the run; ``soft`` degrades it. Keeping them apart is not
+    tidiness: the readiness report's own note says calling a soft gap "blocked"
+    makes the report useless by crying wolf on agents that would in fact
+    produce something. A planner needs the same distinction to answer "can this
+    client have a post today" honestly.
+    """
+
+    hard: list[str] = Field(default_factory=list)
+    soft: list[str] = Field(default_factory=list)
+
 
 class AgentStage(BaseModel):
     """One step of an agent's workflow, for display.
@@ -36,7 +56,17 @@ class AgentStage(BaseModel):
     description: str | None = None
     #: A gate pauses for a human. Worth showing, because it is the difference
     #: between an agent that finishes on its own and one that waits.
+    #:
+    #: Generated rather than hand-set. It was false on all 250 recorded stages
+    #: until `generate_engine_stages.py` learned the two ways the engine
+    #: actually declares a gate: through the shared review-cycle primitive
+    #: (invisible to a scan of the agent's own source), and inside a ternary
+    #: whose other arm is an autoApprove `code` step with the same id (which
+    #: was being recorded instead of the gate).
     is_gate: bool = False
+    #: Which human gate: `batch_review`, `prompt_set_review`,
+    #: `fix_generation_review`. The engine's own vocabulary, not ours.
+    gate_kind: str | None = Field(default=None, max_length=64)
     #: Which kind of step this is, in AGENT-ENGINE's own vocabulary --
     #: ``"agent"`` for a model step, matching its ``StepKindSchema`` and the
     #: ``kind`` field in ``engine_stages.json``.
@@ -107,3 +137,41 @@ class AgentPresentation(BaseModel):
 
     def as_document(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
+
+
+class AgentDescriptorFields(BaseModel):
+    """The half of the C4 descriptor that cannot be derived from a workflow.
+
+    Everything here is a product statement about what an agent is FOR, so it is
+    written once in this catalog -- which is already the source of truth for
+    agent identity -- and consumed by the portal, never hand-written there.
+    ``docs/contracts/C4-capability-descriptor.md`` §7.2 is the ownership rule.
+
+    Not a separate collection or endpoint: these are fields on the agent
+    document, which is what C4 §4 means by "or a field on AgentRead". A second
+    surface serving the same rows would be a copy to keep in step.
+    """
+
+    capabilities: list[Capability] = Field(default_factory=list)
+    #: Channels this agent publishes to, lowercase: "x", "linkedin",
+    #: "instagram", "tiktok", "reddit", "web", "email". Empty for an agent that
+    #: produces no channel-bound artefact, e.g. a research report.
+    platforms: list[str] = Field(default_factory=list)
+    #: Whether `mediaAssets` on the run input means anything to this agent.
+    #: The router asks before accepting an upload, rather than passing files to
+    #: a workflow that ignores them and reporting success.
+    consumes_media: bool = False
+    #: Whether the agent honours C3's `targetDate`. False does not mean the
+    #: work cannot be scheduled -- the deliverable can still be held and
+    #: published later -- it means the AGENT does not read the date, so the
+    #: promise belongs to delivery rather than to the run.
+    supports_target_date: bool = False
+    #: The portal keys that route here. A LIST, because the map it replaces is
+    #: not one-to-one: a channel's setup key and its writer key both land on
+    #: the one drafting agent now that setup is inlined as `00-channel-setup`.
+    custom_agent_keys: list[str] = Field(default_factory=list)
+    #: Human gates on the path, by kind, in step order. A planner promising a
+    #: client "you will get a post now" has to know a `batch_review` sits in
+    #: the middle with a 24-hour timeout. Derived from `stages`.
+    gates: list[str] = Field(default_factory=list)
+    readiness: AgentReadiness = Field(default_factory=AgentReadiness)

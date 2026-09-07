@@ -406,9 +406,12 @@ class Seeder:
             SystemPromptCreate(
                 content=content,
                 notes="seeded from karos-agents",
-                created_by="seed_legacy_agents",
                 activate=True,
             ),
+            # The actor is an argument now rather than a body field, because
+            # over HTTP it comes off the verified token. This is the CLI path,
+            # where the honest actor is the script itself.
+            created_by="seed_legacy_agents",
         )
         outcome = "updated" if active is not None else "created"
         self._report.record(outcome, f"prompt {spec.slug} v{created['version']}")

@@ -18,7 +18,9 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.api.schemas.context import AgentContext, DispatchRequest, DispatchResponse, JobPayload
 from app.api.schemas.run import RunRead
+from app.core.roles import Role
 from app.dependencies import get_context_service, get_dispatch_service, resolve_agent
+from app.security import require_role
 from app.services.context import ContextService
 from app.services.dispatch import DispatchService
 from app.services.templates import DEFAULT_PURPOSE
@@ -86,6 +88,7 @@ async def preview_job_payload(
         "job topic. The engine receives everything it needs in the message and "
         "never reads this database."
     ),
+    dependencies=[Depends(require_role(Role.EDITOR))],
 )
 async def dispatch_job(
     request: DispatchRequest,

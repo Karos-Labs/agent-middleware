@@ -48,8 +48,15 @@ class PromptService:
     def _prompts(self, agent_id: str) -> Any:
         return self._db.collection(AGENTS, agent_id, PROMPTS)
 
-    async def create_version(self, agent_id: str, payload: SystemPromptCreate) -> dict[str, Any]:
-        """Append a new prompt version, optionally making it the active one."""
+    async def create_version(
+        self, agent_id: str, payload: SystemPromptCreate, created_by: str
+    ) -> dict[str, Any]:
+        """Append a new prompt version, optionally making it the active one.
+
+        ``created_by`` is passed in rather than read off ``payload`` because it
+        is the verified caller. It used to be a field on the request body, so a
+        prompt could name anyone at all as its author.
+        """
 
         for _ in range(MAX_VERSION_ALLOCATION_ATTEMPTS):
             version = await self._next_version(agent_id)
@@ -61,7 +68,7 @@ class PromptService:
                 "notes": payload.notes,
                 "variables": payload.variables,
                 "is_active": payload.activate,
-                "created_by": payload.created_by,
+                "created_by": created_by,
                 "created_at": now,
                 "updated_at": now,
             }
