@@ -40,6 +40,7 @@ import argparse
 import json
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +50,23 @@ OUT_FILE = Path(__file__).with_name("engine_stages.json")
 
 #: The step id is always the first argument and always a literal — a computed
 #: one would break the durable store's own checkpoint keys.
-STEP_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*[\"'`]([^\"'`$]+)[\"'`]")
+#:
+#: The optional `\w+\(` is not defensive, it is load-bearing. Six agents now
+#: pass their id through a per-revision helper:
+#:
+#:     const rev = (id) => (revision === 0 ? id : `${id}-r${revision}`);
+#:     await wf.step.agent(rev("10-draft-post"), draftAgent, …)
+#:
+#: Requiring a quote immediately after the paren made all 46 of those calls
+#: invisible, which cost 30-odd stages across blog, instagram, linkedin,
+#: newsletter, reddit and x — including every draft and verify step, i.e. most
+#: of the model steps the Studio's per-stage picker exists to render. The
+#: wrapper takes the base id as its literal, so the capture is unchanged.
+STEP_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*(?:\w+\(\s*)?[\"'`]([^\"'`$]+)[\"'`]")
 
 #: A templated id, e.g. `05-write-copy-attempt-${attempt}`: one stage a
 #: workflow may run several times, not several stages.
-TEMPLATED_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*`([^`$]*)\$\{")
+TEMPLATED_CALL = re.compile(r"wf\.step\.(code|agent|gate)\(\s*(?:\w+\(\s*)?`([^`$]*)\$\{")
 
 #: `const draftAgent = new XDraftAgent({...})`
 AGENT_BINDING = re.compile(r"const\s+(\w+)\s*=\s*new\s+(\w+)\s*\(")
@@ -62,6 +75,29 @@ AGENT_BINDING = re.compile(r"const\s+(\w+)\s*=\s*new\s+(\w+)\s*\(")
 AGENT_ARG = re.compile(r"wf\.step\.agent\(\s*[^,]+,\s*(?:new\s+(\w+)|(\w+))")
 
 SKILL_REF = re.compile(r"skillRef:\s*\"([^\"]+)\"")
+
+#: A human gate declared through the shared review-cycle primitive:
+#:
+#:     runReviewCycle(wf, { gateId: "15-batch-review", ..., buildGate: ... })
+#:
+#: The primitive itself calls `wf.step.gate(`${options.gateId}-r${revision}`)`
+#: from packages/workflow, so STEP_CALL never sees it: the literal part of that
+#: template is empty, and the call is not in any agent's source anyway. Six
+#: agents declare their only human gate this way, and before this pattern
+#: existed all six reported no gates at all.
+REVIEW_CYCLE_GATE = re.compile(r"gateId:\s*\"([^\"]+)\"")
+
+#: The `kind` a gate carries -- `batch_review`, `prompt_set_review`,
+#: `landing_craft_review`, and five more. Read from the first `kind:` after the
+#: gate is opened, which is where every one of them sits.
+GATE_KIND = re.compile(r"kind:\s*\"([a-z_]+)\"")
+
+#: Where a review-cycle gate's `kind` actually lives. `gateId` and `buildGate`
+#: are properties of the same object, but not adjacent ones: `attempt` sits
+#: between them and instagram-agent's runs to hundreds of lines, so a fixed
+#: window from `gateId` finds nothing. Anchoring on `buildGate` instead is
+#: exact rather than merely wider.
+BUILD_GATE = re.compile(r"buildGate:")
 
 #: Step ids the SHARED terminal guardrail contributes (packages/workflow's
 #: `runTopicGuardrail`). Identifiers, not prompt text: the guardrail builds its
@@ -81,6 +117,35 @@ PRODUCT_CASE = re.compile(
 )
 
 WIRING_FILE = ("apps", "agent-server", "src", "wiring", "workflows.ts")
+
+
+def gate_kind_after(text: str, pos: int, window: int = 400) -> str:
+    """The gate's ``kind``, read from just after the gate is opened.
+
+    A window rather than a full parse: a direct ``wf.step.gate`` call puts
+    ``kind`` on the very next line, and 400 characters is comfortably past that
+    while stopping well short of the next step. A miss costs the ``gate_kind``
+    field and never the gate itself.
+    """
+
+    match = GATE_KIND.search(text, pos, pos + window)
+    return match.group(1) if match else ""
+
+
+def review_cycle_gate_kind(text: str, pos: int) -> str:
+    """The ``kind`` inside the ``buildGate`` belonging to one ``gateId``.
+
+    Bounded by the NEXT ``gateId`` rather than by a character count: if another
+    review cycle starts before this one's ``buildGate`` is found, the two are
+    not related and guessing would attribute one agent's gate kind to another.
+    """
+
+    limit = REVIEW_CYCLE_GATE.search(text, pos)
+    end = limit.start() if limit else len(text)
+    build = BUILD_GATE.search(text, pos, end)
+    if not build:
+        return ""
+    return gate_kind_after(text, build.end())
 
 
 def collapse_retry_suffix(step_id: str) -> str:
@@ -104,13 +169,30 @@ def order_key(step_id: str) -> tuple[float, str]:
     return (float(match.group(1)) if match else float("inf"), step_id)
 
 
+@lru_cache(maxsize=1)
+def agent_sources(engine_root: Path) -> tuple[tuple[Path, str], ...]:
+    """Every agent source file in the engine, read once.
+
+    Read once because it used to be read sixteen times. ``factory_source``
+    rescanned and re-read all 421 files for each of the fifteen products, so a
+    run cost roughly 6,300 file opens plus fifteen directory walks -- around two
+    minutes over a network-backed checkout, which is long enough that the
+    generator stopped being something anyone ran casually. One pass is about ten
+    seconds, and a generator people run is worth more than one they avoid.
+    """
+
+    out: list[tuple[Path, str]] = []
+    for path in sorted((engine_root / "agents").rglob("*.ts")):
+        if "__tests__" in path.parts or "dist" in path.parts:
+            continue
+        out.append((path, path.read_text(encoding="utf-8", errors="replace")))
+    return tuple(out)
+
+
 def class_skill_refs(engine_root: Path) -> dict[str, str]:
     """Every agent class in the engine mapped to the skillRef it declares."""
     refs: dict[str, str] = {}
-    for path in (engine_root / "agents").rglob("*.ts"):
-        if "__tests__" in path.parts or "dist" in path.parts:
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+    for _path, text in agent_sources(engine_root):
         for match in re.finditer(r"class\s+(\w+)\s+extends\s+BaseAgent", text):
             tail = text[match.end() :]
             ref = SKILL_REF.search(tail[:2000])
@@ -129,10 +211,8 @@ def product_factories(engine_root: Path) -> dict[str, str]:
 def factory_source(engine_root: Path, factory: str) -> Path | None:
     """The file that exports one workflow factory."""
     needle = f"export function {factory}("
-    for path in (engine_root / "agents").rglob("*.ts"):
-        if "__tests__" in path.parts or "dist" in path.parts:
-            continue
-        if needle in path.read_text(encoding="utf-8", errors="replace"):
+    for path, text in agent_sources(engine_root):
+        if needle in text:
             return path
     return None
 
@@ -188,11 +268,47 @@ def stages_for_workflow(path: Path, refs: dict[str, str]) -> list[dict[str, Any]
             cls = agent_calls.get(_pos, "")
             if refs.get(cls):
                 entry["skill_ref"] = refs[cls]
-        # First writer wins, but a later one carrying a skillRef upgrades it.
-        if step_id in found and "skill_ref" not in found[step_id] and "skill_ref" in entry:
+        if kind == "gate":
+            entry["is_gate"] = True
+            gate_kind = gate_kind_after(text, _pos)
+            if gate_kind:
+                entry["gate_kind"] = gate_kind
+
+        # A GATE ALWAYS WINS over a non-gate for the same id, and that is a
+        # fix rather than a preference. Four agents open their gate inside a
+        # ternary whose other arm is a `code` step with the SAME id:
+        #
+        #     options.autoApprove
+        #       ? await wf.step.code("04-batch-review", () => approve)
+        #       : await wf.step.gate("04-batch-review", { kind: "batch_review" })
+        #
+        # The `code` arm is written first, so first-writer-wins recorded the
+        # AUTO-APPROVE SHORTCUT and threw away the human gate -- the stage came
+        # out as ordinary code, and a planner reading it would promise a client
+        # immediate delivery from a workflow that waits 24 hours for a person.
+        # The gate is the real behaviour; `autoApprove` is a test affordance.
+        existing = found.get(step_id)
+        if existing is None:
             found[step_id] = entry
-        elif step_id not in found:
+        elif entry.get("is_gate") and not existing.get("is_gate"):
             found[step_id] = entry
+        elif "skill_ref" not in existing and "skill_ref" in entry:
+            found[step_id] = entry
+
+    # Gates declared through the shared review-cycle primitive. Added after the
+    # direct calls above so an id already recorded as a real `wf.step.gate` is
+    # left alone, and never overwritten by a weaker reading of itself.
+    for match in REVIEW_CYCLE_GATE.finditer(text):
+        gate_id = collapse_retry_suffix(match.group(1))
+        if not gate_id:
+            continue
+        entry = {"id": gate_id, "kind": "gate", "is_gate": True}
+        gate_kind = review_cycle_gate_kind(text, match.end())
+        if gate_kind:
+            entry["gate_kind"] = gate_kind
+        current = found.get(gate_id)
+        if current is None or not current.get("is_gate"):
+            found[gate_id] = entry
 
     if "runTopicGuardrail(" in text:
         for gid, gkind in GUARDRAIL_STEPS:

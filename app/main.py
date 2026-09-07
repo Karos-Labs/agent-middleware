@@ -29,6 +29,7 @@ from pydantic import ValidationError
 
 from app.api.routes import (
     agents,
+    clients,
     configuration,
     context,
     engine_prompts,
@@ -51,9 +52,11 @@ from app.core.exceptions import (
 from app.core.roles import Role
 from app.db.firestore import FirestoreDB
 from app.db.postgres import ConfigDatabase, build_config_database
+from app.db.workspace import WorkspaceStore, build_workspace_store
 from app.logging_config import configure_logging
 from app.security import require_role, require_service_identity
 from app.services.agents import AgentService
+from app.services.client_context import ClientContextProjector
 from app.services.configuration import ConfigurationService
 from app.services.context import ContextService
 from app.services.dispatch import DispatchService
@@ -75,12 +78,14 @@ def build_services(
     database: FirestoreDB,
     publisher: PublisherService | None = None,
     config_database: ConfigDatabase | None = None,
+    workspace: WorkspaceStore | None = None,
 ) -> None:
     """Construct every service once and attach it to ``app.state``.
 
     Request handlers reach these through ``app.dependencies``, so no handler ever
-    builds a Firestore or Pub/Sub client of its own. ``publisher`` is injectable
-    so tests can wire a fake Pub/Sub client without patching module globals.
+    builds a Firestore or Pub/Sub client of its own. ``publisher`` and
+    ``workspace`` are injectable so tests can wire fakes without patching
+    module globals -- the same arrangement, and the same reason, as Pub/Sub.
 
     ``config_database`` is optional and stays optional: the Configuration API
     (S4) needs Cloud SQL, which does not exist in every environment yet, and a
@@ -90,6 +95,7 @@ def build_services(
     """
 
     publisher = publisher or PublisherService(settings)
+    workspace = workspace if workspace is not None else build_workspace_store(settings)
     agent_service = AgentService(database)
     prompt_service = PromptService(database)
     prompt_store = (
@@ -125,6 +131,11 @@ def build_services(
     app.state.prompt_store = prompt_store
     app.state.configuration_service = (
         ConfigurationService(config_database) if config_database is not None else None
+    )
+    # None when no bucket is configured, which is the local default. The two
+    # routes that need it answer 503 naming the variable; nothing else cares.
+    app.state.projector = (
+        ClientContextProjector(database, workspace) if workspace is not None else None
     )
 
 
@@ -224,6 +235,8 @@ def create_app() -> FastAPI:
     app.include_router(models.router, dependencies=protected)
     app.include_router(context.router, dependencies=protected)
     app.include_router(runs.router, dependencies=protected)
+    app.include_router(runs.client_router, dependencies=protected)
+    app.include_router(clients.router, dependencies=protected)
     app.include_router(configuration.router, dependencies=protected)
 
     register_exception_handlers(app)

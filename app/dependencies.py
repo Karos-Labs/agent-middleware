@@ -15,6 +15,7 @@ from app.config import Settings
 from app.core.exceptions import ServiceUnavailableError
 from app.db.firestore import FirestoreDB
 from app.services.agents import AgentService
+from app.services.client_context import ClientContextProjector
 from app.services.context import ContextService
 from app.services.dispatch import DispatchService
 from app.services.engine_prompts import EnginePromptService
@@ -36,6 +37,17 @@ def get_db(request: Request) -> FirestoreDB:
 
 def get_agent_service(request: Request) -> AgentService:
     return request.app.state.agent_service
+
+
+def get_projector(request: Request) -> ClientContextProjector | None:
+    """The client-context projector, or None when no bucket is configured.
+
+    Optional rather than absent: the two routes that need it answer 503 with
+    the variable named, and everything else in the service keeps working.
+    """
+
+    projector: ClientContextProjector | None = request.app.state.projector
+    return projector
 
 
 def get_prompt_service(request: Request) -> PromptService:

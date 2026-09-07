@@ -43,6 +43,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Same bootstrap, and the same reason, as seed_legacy_agents.py: make the
+# repository root importable when run as `python scripts/seed_all_agents.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# One source for the readiness table: the report owns it, the descriptor reads
+# it. See descriptor_for().
+from scripts.report_client_readiness import readiness_paths  # noqa: E402
+
 ENVIRONMENTS: dict[str, str] = {"prep": "prep", "prod": "(default)"}
 FIRESTORE_PROJECT = "karoscmo"
 COLLECTION = "agents"
@@ -323,6 +331,38 @@ CATALOG: tuple[dict[str, Any], ...] = (
         ],
     },
     {
+        # In KNOWN_PRODUCT_IDS with fifteen recorded stages, and it had no
+        # catalog row -- so it was dispatchable by the engine and invisible to
+        # the portal, which also meant it could not have a C4 descriptor.
+        #
+        # `is_public: False` is the conservative half of a product decision
+        # nobody has made: whether a client should be able to ask for a whole
+        # campaign in one request, or whether this stays an internal
+        # composition step the staff drive. False routes it for staff and
+        # hides it from client surfaces; flipping it is one field.
+        "slug": "campaign-orchestrator",
+        "name": "Campaign Orchestrator",
+        "description": (
+            "Plans a multi-channel campaign and composes the per-channel briefs the "
+            "drafting agents run from."
+        ),
+        "icon": "CalendarRange",
+        "category": "orchestration",
+        "credit_cost": 30,
+        "agent_type": "campaign",
+        "is_public": False,
+        "tags": ["orchestration", "campaign", "gated"],
+        "required_inputs": [
+            {
+                "key": "request",
+                "type": "textarea",
+                "label": "What is this campaign for?",
+                "required": True,
+                "placeholder": "The launch, the season, the announcement",
+            },
+        ],
+    },
+    {
         "slug": "tiktok-agent",
         "name": "TikTok Commentary Clips",
         "description": (
@@ -437,6 +477,222 @@ def load_stages() -> dict[str, list[dict[str, Any]]]:
     }
 
 
+# --- C4 capability descriptor ------------------------------------------------
+#
+# docs/contracts/C4-capability-descriptor.md. The half that cannot be derived
+# from a workflow's source, because it says what an agent is FOR rather than
+# what it does step by step. Written here once; the portal consumes it and
+# never hand-writes it.
+#
+# Two fields are DELIBERATELY absent from every row and set from code below,
+# because they are derived and a hand-written copy would go stale:
+# `gates` comes from the generated stages, and `readiness` from
+# report_client_readiness.py's own table.
+
+#: `supports_target_date` is false everywhere, and that is a finding rather
+#: than an omission: `targetDate` appears NOWHERE in agent-engine. C3 defines
+#: it and T-A13 is the ticket that makes agents read it. Setting true here
+#: would put a field on the descriptor that says yes and does nothing -- which
+#: is the exact failure C3's own first principle forbids ("no displayed field
+#: that is not read"). Each row flips as its agent learns to read the date.
+_TARGET_DATE_UNIMPLEMENTED = False
+
+#: Only three agents read `mediaAssets` -- verified by grep across
+#: agents/*/src, not assumed from the product's name. landing-builder-agent is
+#: false on purpose: C3 routes its `references` INTO mediaAssets, and that work
+#: has not landed, so today an upload handed to it goes nowhere.
+DESCRIPTORS: dict[str, dict[str, Any]] = {
+    "x-agent": {
+        "capabilities": ["draft_social_post"],
+        "platforms": ["x"],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-x-agent-v2"],
+    },
+    "linkedin-agent": {
+        # `run_setup` as well as drafting: the setup workflow was inlined as
+        # this agent's `00-channel-setup` pre-flight, so a run dispatched from
+        # the lab's setup key carries the same filled form it always did and
+        # this agent records it. The capability did not disappear when the
+        # separate product did.
+        "capabilities": ["draft_social_post", "run_setup"],
+        "platforms": ["linkedin"],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-linkedin-writer-v2", "karos-linkedin-setup-v2"],
+    },
+    "reddit-agent": {
+        "capabilities": ["draft_reply", "run_setup"],
+        "platforms": ["reddit"],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-reddit-runner", "karos-reddit-setup"],
+    },
+    "instagram-agent": {
+        "capabilities": ["draft_social_post", "produce_carousel"],
+        "platforms": ["instagram"],
+        "consumes_media": True,
+        "custom_agent_keys": ["karos-instagram-agent"],
+    },
+    "tiktok-agent": {
+        # Its own product, not branded-shorts under another name: this finds a
+        # moment inside someone else's long-form episode and puts the client's
+        # commentary on it.
+        "capabilities": ["draft_social_post", "produce_video"],
+        "platforms": ["tiktok"],
+        "consumes_media": True,
+        "custom_agent_keys": ["karos-tiktok-agent"],
+    },
+    "branded-shorts-agent": {
+        # Turns ONE uploaded talking-head video into one vertical short. The
+        # short itself is platform-agnostic; these are the two surfaces the
+        # portal publishes it to. THE ONE ROW I WOULD HAVE PRODUCT CONFIRM.
+        "capabilities": ["produce_video"],
+        "platforms": ["tiktok", "instagram"],
+        "consumes_media": True,
+        "custom_agent_keys": ["branded-shorts"],
+    },
+    "blog-agent": {
+        "capabilities": ["draft_article"],
+        "platforms": ["web"],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-blog-writer-v2"],
+    },
+    "newsletter-agent": {
+        "capabilities": ["draft_newsletter"],
+        "platforms": ["email"],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-newsletter-writer-v2"],
+    },
+    "landing-builder-agent": {
+        "capabilities": ["build_landing_page"],
+        "platforms": ["web"],
+        "consumes_media": False,
+        "custom_agent_keys": ["landing-builder"],
+    },
+    "seo-geo-agent": {
+        # No platforms: an audit is not published to a channel. An empty list
+        # is a real answer here, and the router treats a platform request
+        # against it as a mismatch rather than a wildcard.
+        "capabilities": ["run_seo_audit"],
+        "platforms": [],
+        "consumes_media": False,
+        "custom_agent_keys": ["seo-geo-agent-v2"],
+    },
+    "intel-report-agent": {
+        "capabilities": ["run_intel_report"],
+        "platforms": [],
+        "consumes_media": False,
+        "custom_agent_keys": [],
+    },
+    "reputation-agent": {
+        # It drafts replies to reviews -- same capability as reddit-agent, a
+        # different surface. `platforms` is empty because the reply goes back to
+        # whichever review site the review came from, which is per-run data and
+        # not a property of the agent.
+        "capabilities": ["draft_reply"],
+        "platforms": [],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-reputation-runner"],
+    },
+    "campaign-orchestrator": {
+        "capabilities": ["orchestrate_campaign"],
+        "platforms": [],
+        "consumes_media": False,
+        "custom_agent_keys": [],
+    },
+}
+
+#: The five portal agents with no agent-engine workflow behind them.
+#:
+#: They get a row so the chat router can resolve their key to a descriptor that
+#: says `legacy_only` and answer "that is still on the old path". Without one,
+#: C4 invariant 2 -- an agent with no descriptor is not routable, no fallback to
+#: the name -- would make them invisible rather than explained, and the router
+#: would be back to matching strings.
+#:
+#: `capabilities` is deliberately empty on all five: `legacy_only` is not a
+#: routable state, so advertising an ability the engine cannot honour would
+#: invite exactly the routing this status exists to prevent. The slug is the
+#: portal key, because there is no engine productId to borrow.
+LEGACY_ONLY_AGENTS: tuple[dict[str, Any], ...] = (
+    {
+        "slug": "karos-carousel-runner",
+        "name": "Carousel Runner (legacy)",
+        "description": "Carousel generation on the agent-service path. No agent-engine workflow.",
+        "category": "social",
+        "tags": ["legacy", "carousel"],
+    },
+    {
+        "slug": "karos-carousel-setup",
+        "name": "Carousel Setup (legacy)",
+        "description": "Carousel onboarding on the agent-service path. No agent-engine workflow.",
+        "category": "social",
+        "tags": ["legacy", "carousel"],
+    },
+    {
+        "slug": "karos-carousel-manager",
+        "name": "Carousel Manager (legacy)",
+        "description": "Carousel scheduling on the agent-service path. No agent-engine workflow.",
+        "category": "social",
+        "tags": ["legacy", "carousel"],
+    },
+    {
+        "slug": "karos-linkedin-manager-v2",
+        "name": "LinkedIn Manager (legacy)",
+        # The documented case, and the reason this status exists rather than a
+        # missing row: it runs on two clocks and rewrites the generators'
+        # inputs, and agent-engine has neither a scheduler nor a write path for
+        # that. It is not waiting on a migration nobody did.
+        "description": (
+            "Runs on two clocks and rewrites the generators' inputs. agent-engine has "
+            "neither a scheduler nor a write path for that, so it stays on agent-service."
+        ),
+        "category": "social",
+        "tags": ["legacy", "linkedin"],
+    },
+    {
+        "slug": "karos-reputation-manager",
+        "name": "Reputation Manager (legacy)",
+        "description": "Reputation scheduling on the agent-service path. No agent-engine workflow.",
+        "category": "reputation",
+        "tags": ["legacy", "reputation"],
+    },
+)
+
+
+def descriptor_for(slug: str, stages: list[dict[str, Any]]) -> dict[str, Any]:
+    """The C4 descriptor fields for one agent: written, plus derived.
+
+    `gates` is read off the stages the generator produced rather than listed by
+    hand, so it cannot disagree with the workflow. It was empty for every agent
+    until the generator learned the two ways a gate is actually declared --
+    through the shared review-cycle primitive, and inside a ternary whose other
+    arm is an autoApprove `code` step with the same id.
+
+    `readiness` comes from report_client_readiness.py's own table, for the same
+    reason: one source, and the copy that would have drifted is the one a
+    planner uses to tell a client whether they can have a post today.
+    """
+
+    written = DESCRIPTORS.get(slug, {})
+    gates = [s["gate_kind"] for s in stages if s.get("is_gate") and s.get("gate_kind")]
+    try:
+        hard, soft = readiness_paths(slug)
+    except KeyError:
+        # A product the readiness report does not score yet, e.g.
+        # campaign-orchestrator. Empty is honest; inventing requirements is not.
+        hard, soft = [], []
+    return {
+        "capabilities": list(written.get("capabilities", [])),
+        "platforms": list(written.get("platforms", [])),
+        "consumes_media": bool(written.get("consumes_media", False)),
+        "supports_target_date": _TARGET_DATE_UNIMPLEMENTED,
+        "custom_agent_keys": list(written.get("custom_agent_keys", [])),
+        # De-duplicated, order preserved: one agent can hold two gates of the
+        # same kind across revision rounds and the descriptor lists kinds.
+        "gates": list(dict.fromkeys(gates)),
+        "readiness": {"hard": hard, "soft": soft},
+    }
+
+
 def build_document(entry: dict[str, Any], stages: list[dict[str, Any]], now: Any) -> dict[str, Any]:
     return {
         "id": entry["slug"],
@@ -452,7 +708,9 @@ def build_document(entry: dict[str, Any], stages: list[dict[str, Any]], now: Any
         "icon": entry["icon"],
         "category": entry["category"],
         "credit_cost": entry["credit_cost"],
-        "is_public": True,
+        # Per entry, defaulting to public: every drafting agent is, and the one
+        # that is not says so in its own row with the reason.
+        "is_public": entry.get("is_public", True),
         "required_inputs": [
             {
                 "key": i["key"],
@@ -469,6 +727,52 @@ def build_document(entry: dict[str, Any], stages: list[dict[str, Any]], now: Any
         # These stages are TypeScript. Recorded so the Studio can show what an
         # agent does; editing the list would change a page and not a program.
         "stages_read_only": True,
+        **descriptor_for(entry["slug"], stages),
+        "deleted_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def build_legacy_document(entry: dict[str, Any], now: Any) -> dict[str, Any]:
+    """A row for a portal agent with no agent-engine workflow.
+
+    Everything a descriptor consumer reads is present and empty rather than
+    absent, so the router gets a definite "nothing here" instead of a missing
+    field it has to interpret. `status: legacy_only` is the whole payload of
+    information; `capabilities: []` makes sure it cannot be routed to by
+    accident even if something ignores the status.
+    """
+
+    return {
+        "id": entry["slug"],
+        "slug": entry["slug"],
+        "name": entry["name"],
+        "description": entry["description"],
+        "status": "legacy_only",
+        "agent_type": None,
+        "model": None,
+        "model_params": {},
+        "config": {},
+        "tags": entry["tags"],
+        "icon": entry.get("icon"),
+        "category": entry["category"],
+        "credit_cost": None,
+        # Not client-facing: the portal already renders these from its own
+        # customAgents; the row exists so the CHAT ROUTER can resolve the key.
+        "is_public": False,
+        "required_inputs": [],
+        "stages": [],
+        # No stages to be read-only about. False rather than True so nothing
+        # reads it as "compiled code we cannot show you".
+        "stages_read_only": False,
+        "capabilities": [],
+        "platforms": [],
+        "consumes_media": False,
+        "supports_target_date": False,
+        "custom_agent_keys": [entry["slug"]],
+        "gates": [],
+        "readiness": {"hard": [], "soft": []},
         "deleted_at": None,
         "created_at": now,
         "updated_at": now,
@@ -597,6 +901,30 @@ def main() -> int:
             report.record("updated", label)
             continue
 
+        ref.set(document)
+        report.record("created", label)
+
+    for entry in LEGACY_ONLY_AGENTS:
+        slug = entry["slug"]
+        document = build_legacy_document(entry, now)
+        label = f"{slug} (legacy_only)"
+        if args.dry_run:
+            report.record("created", label)
+            continue
+        ref = db.collection(COLLECTION).document(slug)
+        existing = ref.get()
+        if existing.exists:
+            current = existing.to_dict() or {}
+            merged = {**current, **document}
+            if comparable({**current, "id": slug}) == comparable(merged):
+                report.record("unchanged", label)
+                continue
+            ref.set(
+                {**document, "created_at": current.get("created_at", now), "updated_at": now},
+                merge=True,
+            )
+            report.record("updated", label)
+            continue
         ref.set(document)
         report.record("created", label)
 

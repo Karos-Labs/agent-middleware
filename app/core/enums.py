@@ -15,6 +15,39 @@ class AgentStatus(StrEnum):
 
     ACTIVE = "active"
     DISABLED = "disabled"
+    #: A portal agent with no agent-engine workflow behind it. Distinct from
+    #: `disabled`, which is a decision someone made about an agent that works:
+    #: this one has nowhere to run. The chat router needs the difference so it
+    #: can say "that is still on the old path" instead of failing, and
+    #: `get_active` refuses it for the same reason it refuses `disabled`.
+    LEGACY_ONLY = "legacy_only"
+
+
+class Capability(StrEnum):
+    """What an agent can be asked to do -- verbs, not descriptions.
+
+    A CLOSED vocabulary, extended only by changing this enum, because the whole
+    point is that the chat router selects on capability rather than by matching
+    the words in an agent's name. A free-text list would be a description field
+    with extra steps: two agents would spell the same ability differently and
+    the router would be back to string matching.
+
+    Kept small on purpose. A capability answers "would this agent be the right
+    one to ask", not "what exactly does it produce" -- that is the deliverable
+    kind, which is C5's business and lives on the wire, not here.
+    """
+
+    DRAFT_SOCIAL_POST = "draft_social_post"
+    DRAFT_ARTICLE = "draft_article"
+    DRAFT_NEWSLETTER = "draft_newsletter"
+    DRAFT_REPLY = "draft_reply"
+    BUILD_LANDING_PAGE = "build_landing_page"
+    PRODUCE_VIDEO = "produce_video"
+    PRODUCE_CAROUSEL = "produce_carousel"
+    RUN_SEO_AUDIT = "run_seo_audit"
+    RUN_INTEL_REPORT = "run_intel_report"
+    RUN_SETUP = "run_setup"
+    ORCHESTRATE_CAMPAIGN = "orchestrate_campaign"
 
 
 class TemplateKind(StrEnum):
