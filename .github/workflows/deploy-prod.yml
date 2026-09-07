@@ -108,6 +108,10 @@ jobs:
           GCS_ARTIFACTS_BUCKET: ${{ vars.PROD_GCS_ARTIFACTS_BUCKET }}
           AUTH_AUDIENCE: ${{ vars.PROD_AUTH_AUDIENCE }}
           AUTH_ALLOWED_SERVICE_ACCOUNTS: ${{ vars.PROD_AUTH_ALLOWED_SERVICE_ACCOUNTS || '[]' }}
+          # Defaults to `{}` — authorization not configured, every verified
+          # caller admin, and startup says so at ERROR. Set this variable in
+          # BOTH environments or neither.
+          AUTH_ROLE_BINDINGS: ${{ vars.PROD_AUTH_ROLE_BINDINGS || '{}' }}
           # The configuration plane. Both default to empty, which is a
           # supported deployment: the service starts and the /config routes
           # answer 503 naming the variable. cloudbuild.yaml refuses a deploy
@@ -118,7 +122,7 @@ jobs:
           gcloud builds submit \
             --project="$PROJECT_ID" \
             --config=cloudbuild.yaml \
-            --substitutions="^|^COMMIT_SHA=$SHA|_REGION=$REGION|_SERVICE=agent-middleware|_SERVICE_ACCOUNT=$SERVICE_ACCOUNT|_ENVIRONMENT=production|_GCP_PROJECT_ID=$PROJECT_ID|_PUBSUB_JOB_TOPIC_ID=$PUBSUB_JOB_TOPIC|_FIRESTORE_PROJECT_ID=$FIRESTORE_PROJECT_ID|_FIRESTORE_DATABASE=$FIRESTORE_DATABASE|_GCS_ARTIFACTS_BUCKET=$GCS_ARTIFACTS_BUCKET|_AUTH_AUDIENCE=$AUTH_AUDIENCE|_AUTH_ALLOWED_SERVICE_ACCOUNTS=$AUTH_ALLOWED_SERVICE_ACCOUNTS|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CONFIG_DB_DSN=$CONFIG_DB_DSN"
+            --substitutions="^|^COMMIT_SHA=$SHA|_REGION=$REGION|_SERVICE=agent-middleware|_SERVICE_ACCOUNT=$SERVICE_ACCOUNT|_ENVIRONMENT=production|_GCP_PROJECT_ID=$PROJECT_ID|_PUBSUB_JOB_TOPIC_ID=$PUBSUB_JOB_TOPIC|_FIRESTORE_PROJECT_ID=$FIRESTORE_PROJECT_ID|_FIRESTORE_DATABASE=$FIRESTORE_DATABASE|_GCS_ARTIFACTS_BUCKET=$GCS_ARTIFACTS_BUCKET|_AUTH_AUDIENCE=$AUTH_AUDIENCE|_AUTH_ALLOWED_SERVICE_ACCOUNTS=$AUTH_ALLOWED_SERVICE_ACCOUNTS|_AUTH_ROLE_BINDINGS=$AUTH_ROLE_BINDINGS|_CLOUDSQL_INSTANCE=$CLOUDSQL_INSTANCE|_CONFIG_DB_DSN=$CONFIG_DB_DSN"
 
       - name: Verify the new revision is serving
         run: |

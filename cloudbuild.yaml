@@ -38,6 +38,24 @@ substitutions:
   _AUTH_AUDIENCE: ""
   # JSON array of caller service-account emails.
   _AUTH_ALLOWED_SERVICE_ACCOUNTS: "[]"
+  # Caller principal -> role, as a JSON object. Empty is the DEFAULT and is a
+  # supported deployment -- it means authorization is not configured, and every
+  # verified caller holds `admin`, which is exactly the behaviour this service
+  # had before roles existed. Startup logs an ERROR saying so, and that line is
+  # the whole point: the state is safe and must not be mistakeable for a
+  # configured one.
+  #
+  # This substitution exists because without it the state was not REACHABLE.
+  # `--set-env-vars` replaces the whole set and this variable was not in it, so
+  # `AUTH_ROLE_BINDINGS` fell back to its `{}` default on every revision and
+  # turning authorization on required a code change and a redeploy. S3 built
+  # the model; this makes it configuration.
+  #
+  # Populate prep and prod TOGETHER. One environment enforcing and the other
+  # not means they disagree about who may write, which is the parity failure
+  # AU52 is about -- and the direction of the mistake is the dangerous one,
+  # because the permissive side is the one that keeps working.
+  _AUTH_ROLE_BINDINGS: "{}"
   # The configuration plane (S2/S4/S6). Both empty is a valid, supported
   # deployment: the service starts, the /config routes answer 503 naming the
   # variable, and everything else is unaffected. Both set is the wired
@@ -98,6 +116,7 @@ steps:
         artifacts_bucket='${_GCS_ARTIFACTS_BUCKET}'
         auth_audience='${_AUTH_AUDIENCE}'
         auth_callers='${_AUTH_ALLOWED_SERVICE_ACCOUNTS}'
+        auth_roles='${_AUTH_ROLE_BINDINGS}'
         dsn='${_CONFIG_DB_DSN}'
         instance='${_CLOUDSQL_INSTANCE}'
 
@@ -115,6 +134,7 @@ steps:
         env_vars="$${env_vars}|AUTH_ENABLED=true"
         env_vars="$${env_vars}|AUTH_AUDIENCE=$${auth_audience}"
         env_vars="$${env_vars}|AUTH_ALLOWED_SERVICE_ACCOUNTS=$${auth_callers}"
+        env_vars="$${env_vars}|AUTH_ROLE_BINDINGS=$${auth_roles}"
 
         if { [ -n "$${dsn}" ] && [ -z "$${instance}" ]; } \
         || { [ -z "$${dsn}" ] && [ -n "$${instance}" ]; }; then
