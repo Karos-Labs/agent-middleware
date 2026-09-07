@@ -119,6 +119,7 @@ class TestDeployWiringParser:
             "AUTH_ENABLED",
             "AUTH_AUDIENCE",
             "AUTH_ALLOWED_SERVICE_ACCOUNTS",
+            "AUTH_ROLE_BINDINGS",
             "CONFIG_DB_DSN",
         ):
             assert expected in env_vars, f"the deploy sets {expected} and the parser missed it"
@@ -278,6 +279,9 @@ _SUBSTITUTIONS = {
     "_AUTH_AUDIENCE": "https://agent-middleware-x.run.app",
     # JSON, with double quotes of its own. The reason this test exists.
     "_AUTH_ALLOWED_SERVICE_ACCOUNTS": '["portal@karoscmo-prep.iam.gserviceaccount.com","x@y.com"]',
+    # Also JSON, and also carrying double quotes -- plus braces, which is the
+    # shape a shell is most likely to mangle.
+    "_AUTH_ROLE_BINDINGS": '{"portal@karoscmo-prep.iam.gserviceaccount.com":"editor"}',
     "PROJECT_ID": "karoscmo-prep",
     "COMMIT_SHA": "abc1234",
 }
@@ -406,6 +410,25 @@ class TestTheDeployStepRefusesHalfAConfiguration:
         assert (
             "AUTH_ALLOWED_SERVICE_ACCOUNTS="
             '["portal@karoscmo-prep.iam.gserviceaccount.com","x@y.com"]' in env_flag
+        )
+
+    def test_the_role_bindings_survive_the_shell_too(self, tmp_path: Path) -> None:
+        """A JSON OBJECT, not just an array: quotes and braces.
+
+        And the reason this variable is passed at all: `--set-env-vars`
+        replaces the whole set, and this one was not in it -- so
+        `AUTH_ROLE_BINDINGS` fell back to `{}` on every revision and turning
+        authorization on needed a code change. A value that arrives mangled
+        here is worse than one that arrives empty, because empty is the
+        documented safe state and mangled is a parse error at startup.
+        """
+
+        _, args, _ = _run("", "", tmp_path)
+        (env_flag,) = [a for a in args if a.startswith("--set-env-vars")]
+
+        assert (
+            'AUTH_ROLE_BINDINGS={"portal@karoscmo-prep.iam.gserviceaccount.com":"editor"}'
+            in env_flag
         )
 
     def test_the_pipe_delimiter_is_declared_before_the_first_value(self, tmp_path: Path) -> None:
