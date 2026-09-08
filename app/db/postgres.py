@@ -24,15 +24,22 @@ without a DSN, the Configuration API's routes 503 with a message saying so, and
 every existing route keeps working -- the migration is additive, and an
 environment where Cloud SQL does not exist yet is a normal state rather than a
 broken one.
+
+Authentication is read off the DSN. Cloud Run's Cloud SQL integration mounts a
+socket and does not log anybody in, so a DSN naming an IAM database user with
+no password gets an access token presented as its password, refreshed per
+connection (:class:`AccessTokenPassword`). A DSN with a password is left alone.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Protocol
+from urllib.parse import unquote, urlsplit
 
 import asyncpg
 
@@ -69,6 +76,110 @@ async def _prepare(connection: asyncpg.Connection) -> None:
             decoder=json.loads,
             schema="pg_catalog",
         )
+
+
+#: The scope a token has to carry to be accepted as a Cloud SQL login.
+#:
+#: `cloud-platform` also works, but a token minted for it is a token that can
+#: do everything this service account can do, handed to a database. This one
+#: logs in and nothing else.
+IAM_LOGIN_SCOPE = "https://www.googleapis.com/auth/sqlservice.login"
+
+
+class _Credentials(Protocol):
+    """The slice of ``google.auth`` credentials this module actually uses."""
+
+    token: str | None
+    valid: bool
+
+    def refresh(self, request: Any) -> None: ...
+
+
+def iam_database_user(dsn: str) -> str | None:
+    """The IAM database user in ``dsn``, or ``None`` for password auth.
+
+    Cloud SQL names an IAM service account user after the account with
+    ``.gserviceaccount.com`` cut off, so
+    ``agent-middleware-sa@karoscmo-prep.iam.gserviceaccount.com`` logs in as
+    ``agent-middleware-sa@karoscmo-prep.iam``. That suffix is what identifies
+    the mode, and a DSN that carries a password is answering the question
+    already -- built-in authentication, whatever the user is called.
+
+    A DSN naming an IAM user and carrying no password has exactly one reading.
+    There is no third possibility to configure a flag for: a built-in user with
+    an empty password cannot connect either, so a variable saying which mode to
+    use could only ever disagree with the DSN and lose.
+    """
+
+    parsed = urlsplit(dsn)
+    if parsed.password:
+        return None
+    username = unquote(parsed.username or "")
+    return username if username.endswith(".iam") else None
+
+
+class AccessTokenPassword:
+    """An OAuth access token, handed to asyncpg as the password.
+
+    Cloud Run's built-in Cloud SQL socket does the *transport* -- it dials the
+    instance and puts a unix socket in ``/cloudsql`` -- and stops there. It does
+    not authenticate anybody. Logging in as an IAM database user means
+    presenting a short-lived access token where a password would go, and that
+    is the whole of what this class is for.
+
+    It is a callable rather than a string because a token expires in an hour and
+    a pool outlives that. asyncpg calls it for every new connection, so a
+    connection opened at the fifty-ninth minute gets a fresh token and the
+    process never has to know it happened. The cached credentials refresh
+    themselves only once ``valid`` goes false, so the common case is a dict
+    lookup rather than a metadata-server round trip.
+
+    The blocking parts of ``google.auth`` run in a thread. A refresh talks to
+    the metadata server, and doing that on the event loop stalls every request
+    in flight behind a network call nobody can see.
+    """
+
+    def __init__(
+        self,
+        credentials: _Credentials | None = None,
+        request: Any | None = None,
+    ) -> None:
+        self._credentials = credentials
+        self._request = request
+        self._lock = asyncio.Lock()
+
+    async def __call__(self) -> str:
+        async with self._lock:
+            if self._credentials is None:
+                self._credentials = await asyncio.to_thread(self._default)
+            if not self._credentials.valid:
+                await asyncio.to_thread(
+                    self._credentials.refresh, self._request or self._transport()
+                )
+            token = self._credentials.token
+
+        if not token:
+            # asyncpg would send an empty password and the server would answer
+            # "password authentication failed", which reads as a wrong password
+            # rather than as a token that never arrived.
+            raise RuntimeError(
+                "no access token for the configuration database: the credentials "
+                "refreshed without producing one"
+            )
+        return token
+
+    @staticmethod
+    def _default() -> _Credentials:
+        import google.auth
+
+        credentials, _ = google.auth.default(scopes=[IAM_LOGIN_SCOPE])
+        return credentials  # type: ignore[return-value]
+
+    @staticmethod
+    def _transport() -> Any:
+        from google.auth.transport.requests import Request
+
+        return Request()
 
 
 class ConfigDatabase:
@@ -150,6 +261,7 @@ async def build_pool(
     max_size: int = 5,
     idle_lifetime: float = 300.0,
     command_timeout: float = 30.0,
+    password: AccessTokenPassword | str | None = None,
 ) -> asyncpg.Pool:
     """A pool with this module's per-connection setup applied.
 
@@ -166,6 +278,10 @@ async def build_pool(
         max_inactive_connection_lifetime=idle_lifetime,
         command_timeout=command_timeout,
         server_settings=SERVER_SETTINGS,
+        # None is what asyncpg defaults to, and it means "whatever the DSN and
+        # the environment say" -- so passing it through changes nothing for a
+        # password DSN.
+        password=password,
         init=_prepare,
     )
     if pool is None:  # pragma: no cover - asyncpg only returns None on failure
@@ -190,8 +306,20 @@ async def build_config_database(settings: Settings) -> ConfigDatabase | None:
         )
         return None
 
+    iam_user = iam_database_user(dsn)
+    password: AccessTokenPassword | None = None
+    if iam_user:
+        password = AccessTokenPassword()
+        logger.info(
+            "authenticating to the configuration database as the IAM database "
+            "user %s; every new connection presents a freshly minted access "
+            "token as its password",
+            iam_user,
+        )
+
     pool = await build_pool(
         dsn,
+        password=password,
         min_size=settings.config_db_pool_min_size,
         max_size=settings.config_db_pool_max_size,
         # Cloud Run scales to zero and a pooled connection outlives that; a
