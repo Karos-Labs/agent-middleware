@@ -290,12 +290,26 @@ async def build_pool(
 
 
 async def build_config_database(settings: Settings) -> ConfigDatabase | None:
-    """A pool, or ``None`` when no DSN is configured.
+    """A pool, or ``None`` when there is no usable configuration database.
 
     ``None`` is not a failure. Cloud SQL does not exist in every environment
     yet (S1 / SCRUM-216), and a control plane that refuses to start without it
     would make the Postgres migration a flag day for routes that have nothing
     to do with it.
+
+    That holds for a database that is configured and unreachable too, which is
+    why the connection is inside a ``try``. This runs in the lifespan, so an
+    exception here is a container that never becomes ready -- and Cloud Run
+    cold-starts constantly. Letting the pool raise would turn a Cloud SQL blip
+    into a total outage of a control plane whose other thirty routes only ever
+    talk to Firestore, and would do it minutes after the blip rather than
+    during it, on the next cold start, when nobody is looking at Cloud SQL any
+    more.
+
+    It is logged at ERROR rather than swallowed, and it is the same shape as
+    the schema-missing branch below, which already degrades this way. Crashing
+    on one and degrading on the other would be the worst of both: an outage
+    where a 503 was expected.
     """
 
     dsn = settings.config_db_dsn
@@ -317,17 +331,37 @@ async def build_config_database(settings: Settings) -> ConfigDatabase | None:
             iam_user,
         )
 
-    pool = await build_pool(
-        dsn,
-        password=password,
-        min_size=settings.config_db_pool_min_size,
-        max_size=settings.config_db_pool_max_size,
-        # Cloud Run scales to zero and a pooled connection outlives that; a
-        # connection that has been idle longer than Cloud SQL's own timeout is
-        # a first-request 500 that looks like a code fault.
-        idle_lifetime=settings.config_db_idle_lifetime_seconds,
-        command_timeout=settings.config_db_command_timeout_seconds,
-    )
+    try:
+        pool = await build_pool(
+            dsn,
+            password=password,
+            min_size=settings.config_db_pool_min_size,
+            max_size=settings.config_db_pool_max_size,
+            # Cloud Run scales to zero and a pooled connection outlives that; a
+            # connection that has been idle longer than Cloud SQL's own timeout
+            # is a first-request 500 that looks like a code fault.
+            idle_lifetime=settings.config_db_idle_lifetime_seconds,
+            command_timeout=settings.config_db_command_timeout_seconds,
+        )
+    except Exception as error:  # noqa: BLE001 - breadth is the point
+        # Everything that can go wrong here is a reason to serve without the
+        # configuration database rather than not to serve: a wrong password, an
+        # instance that was never attached to the revision, a socket that is not
+        # in /cloudsql, an access token that would not mint, a network that is
+        # down. Naming a subset would leave the unnamed ones taking the service
+        # down, and the log line says which one it was either way.
+        logger.error(
+            "could not connect to the configuration database (%s: %s) -- the "
+            "Configuration API will report itself unavailable and every other "
+            "route is unaffected. Check that the revision has the Cloud SQL "
+            "instance attached, that CONFIG_DB_DSN points at it, and that the "
+            "runtime service account holds roles/cloudsql.client and "
+            "roles/cloudsql.instanceUser",
+            type(error).__name__,
+            error,
+        )
+        return None
+
     database = ConfigDatabase(pool)
 
     if not await database.schema_is_applied():

@@ -216,5 +216,70 @@ class TestWiringItIntoTheDatabase:
         assert await postgres.build_config_database(_settings("")) is None
 
 
-class _Stop(Exception):
-    """Cuts the call short once the arguments have been observed."""
+class TestAnUnreachableDatabaseDoesNotTakeTheServiceDown:
+    """build_config_database runs in the lifespan.
+
+    An exception there is a container that never becomes ready, and Cloud Run
+    cold-starts constantly -- so a Cloud SQL blip would become a total outage
+    of a control plane whose other routes only talk to Firestore, on the next
+    cold start, minutes after the blip.
+    """
+
+    async def test_a_refused_connection_degrades_instead_of_raising(
+        self, monkeypatch, caplog
+    ) -> None:
+        from app.db import postgres
+
+        async def refuse(dsn: str, **kwargs: Any) -> Any:
+            raise ConnectionRefusedError("no /cloudsql socket")
+
+        monkeypatch.setattr(postgres, "build_pool", refuse)
+
+        with caplog.at_level("ERROR"):
+            assert await postgres.build_config_database(_settings(PREP_DSN)) is None
+
+        assert "could not connect to the configuration database" in caplog.text
+
+    async def test_the_log_names_the_failure_and_the_three_things_to_check(
+        self, monkeypatch, caplog
+    ) -> None:
+        """A degraded start that does not say why is a 503 nobody can act on."""
+
+        from app.db import postgres
+
+        async def refuse(dsn: str, **kwargs: Any) -> Any:
+            raise RuntimeError("password authentication failed")
+
+        monkeypatch.setattr(postgres, "build_pool", refuse)
+
+        with caplog.at_level("ERROR"):
+            await postgres.build_config_database(_settings(PREP_DSN))
+
+        assert "RuntimeError" in caplog.text
+        assert "password authentication failed" in caplog.text
+        assert "cloudsql.instanceUser" in caplog.text
+
+    async def test_a_bad_token_is_not_special_cased(
+        self, monkeypatch, caplog
+    ) -> None:
+        """The token is fetched inside the pool, so it arrives here as one more
+        reason the connection did not happen."""
+
+        from app.db import postgres
+
+        async def refuse(dsn: str, **kwargs: Any) -> Any:
+            raise RuntimeError("no access token for the configuration database")
+
+        monkeypatch.setattr(postgres, "build_pool", refuse)
+
+        with caplog.at_level("ERROR"):
+            assert await postgres.build_config_database(_settings(PREP_DSN)) is None
+
+
+class _Stop(BaseException):
+    """Cuts the call short once the arguments have been observed.
+
+    A BaseException on purpose: build_config_database catches Exception so that
+    an unreachable database degrades instead of failing the lifespan, and a
+    test escape hatch that the code under test swallows is not an escape hatch.
+    """
