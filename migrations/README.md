@@ -14,6 +14,7 @@ has not arrived. `config.schema_migrations` records what has been applied.
 | `0003_model_catalog.sql` | 12 priced models and the three aliases | Yes |
 | `0004_prompt_projection.sql` | The engine-projection columns S7 writes | Yes |
 | `0005_stage_source.sql` | `agents.stage_source` and the guard that follows from it (S5) | Yes |
+| `0006_run_feedback.sql` | `run_feedback` — a reviewer's verdict on a run, joinable to the prompt version it criticised (S11) | Yes |
 | `0001_config_plane_verify.sql` | Attempts every write the schema must refuse | Yes — ends in `ROLLBACK` |
 
 **Apply them in filename order, and run the verify script last.** It is
@@ -25,7 +26,8 @@ second.
 ```bash
 # prep — in this order, verify last
 for f in 0001_config_plane 0002_reference_data 0003_model_catalog \
-         0004_prompt_projection 0005_stage_source 0001_config_plane_verify; do
+         0004_prompt_projection 0005_stage_source 0006_run_feedback \
+         0001_config_plane_verify; do
   psql "$PREP_DATABASE_URL" -v ON_ERROR_STOP=1 -f "migrations/$f.sql" || break
 done
 ```
@@ -61,6 +63,7 @@ same: application-level invariants last exactly as long as the next refactor.
 | `audit_log_00_guard` | The audit log is append-only. |
 | `agents_10_pointer_guard` / `client_agent_config_10_pointer_guard` | Only a frozen version can be live or pinned. |
 | `agent_version_steps_20_kind_guard` | A step satisfies the `requires_*` flags of its kind. |
+| `run_feedback_00_guard` | A verdict is history: no delete, no edit — only `promoted_example_id` may be set, once. (0006) |
 
 The immutability guard compares the whole row as `jsonb` minus `updated_at`,
 rather than a list of columns. A column added by a later migration is
@@ -111,6 +114,22 @@ repositories use the same word for different questions:
 Llama on Model Garden is `vendor: meta, route: model-garden`. Collapsing them
 into one column is how a Studio author ends up unable to express a model that
 exists.
+
+## One table beyond the configuration plane, on purpose
+
+`run_feedback` (0006, S11) is not configuration: it is a reviewer's verdict on
+a run. It lives here anyway because the question it exists to answer — "which
+prompt version produced the output this person rated 2" — is a join to
+`prompt_versions`, and Firestore cannot join. `prompt_version_id` is resolved
+at write time to the newest version of the run's engine prompt created at or
+before the run, and is nullable: a run that named no prompt, or a prompt never
+saved through S7's store, is still a verdict worth keeping, with the raw
+engine reference kept beside the empty FK.
+
+The existing Firestore collection comes over with
+`python -m scripts.import_run_feedback --env prep`, one-way and idempotent
+(`source_id` is the Firestore document id, and UNIQUE). Feedback on a *draft*
+(the portal's `xDraftFeedback`) is a different thing and stays in Firestore.
 
 ## What S1 still owes this
 

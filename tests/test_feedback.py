@@ -307,7 +307,9 @@ def test_feedback_listing_survives_a_missing_composite_index(
         )
         assert created.status_code == 201, created.text
 
-    original = feedback_module.FeedbackService.list_for_agent
+    # S11 put the Firestore reads behind a store; the fallback under test is
+    # the store's, so that is what gets the failing order_by.
+    original = feedback_module.FirestoreFeedbackStore.list_for_agent
 
     async def raise_once(self: Any, *args: Any, **kwargs: Any) -> Any:
         # Force the ordered path to fail the way an absent index fails.
@@ -323,7 +325,7 @@ def test_feedback_listing_survives_a_missing_composite_index(
         finally:
             query_cls.order_by = real_order_by  # type: ignore[method-assign]
 
-    monkeypatch.setattr(feedback_module.FeedbackService, "list_for_agent", raise_once)
+    monkeypatch.setattr(feedback_module.FirestoreFeedbackStore, "list_for_agent", raise_once)
 
     response = client.get(f"/agents/{agent['id']}/feedback")
 

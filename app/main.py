@@ -125,7 +125,11 @@ def build_services(
     app.state.template_service = template_service
     app.state.model_service = model_service
     app.state.run_service = run_service
-    app.state.feedback_service = FeedbackService(database, run_service, prompt_service)
+    # S11: verdicts on runs live in Postgres when the configuration database
+    # is wired, in Firestore otherwise. Same API either way; see the module.
+    app.state.feedback_service = FeedbackService(
+        database, run_service, prompt_service, config_database=config_database
+    )
     app.state.context_service = context_service
     app.state.dispatch_service = DispatchService(
         settings,
