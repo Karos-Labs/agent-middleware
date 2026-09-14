@@ -37,6 +37,7 @@ from app.api.routes import (
     models,
     prompts,
     runs,
+    schedules,
     templates,
 )
 from app.config import Settings, get_settings
@@ -67,6 +68,7 @@ from app.services.prompt_store import UnifiedPromptStore
 from app.services.prompts import PromptService
 from app.services.publisher import PublisherService
 from app.services.runs import RunService
+from app.services.schedules import ScheduleService
 from app.services.snapshot import SnapshotResolver, SnapshotTransport
 from app.services.templates import TemplateService
 
@@ -142,6 +144,11 @@ def build_services(
     app.state.prompt_store = prompt_store
     app.state.configuration_service = (
         ConfigurationService(config_database) if config_database is not None else None
+    )
+    # S10: schedules are configuration plus run state in one Postgres row, so
+    # they exist exactly when the configuration database does.
+    app.state.schedule_service = (
+        ScheduleService(config_database) if config_database is not None else None
     )
     # None when no bucket is configured, which is the local default. The two
     # routes that need it answer 503 naming the variable; nothing else cares.
@@ -249,6 +256,8 @@ def create_app() -> FastAPI:
     app.include_router(runs.client_router, dependencies=protected)
     app.include_router(clients.router, dependencies=protected)
     app.include_router(configuration.router, dependencies=protected)
+    app.include_router(schedules.client_router, dependencies=protected)
+    app.include_router(schedules.router, dependencies=protected)
 
     register_exception_handlers(app)
     return app
