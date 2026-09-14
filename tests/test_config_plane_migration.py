@@ -24,6 +24,7 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 SCHEMA = MIGRATIONS / "0001_config_plane.sql"
 REFERENCE_DATA = MIGRATIONS / "0002_reference_data.sql"
 VERIFY = MIGRATIONS / "0001_config_plane_verify.sql"
+RUN_FEEDBACK = MIGRATIONS / "0006_run_feedback.sql"
 
 # The tables SCRUM-217 names, verbatim. "prompts + prompt_versions" is one
 # item on the ticket and two tables here.
@@ -147,7 +148,7 @@ def _first_statement(sql: str) -> str:
     return ""
 
 
-@pytest.mark.parametrize("path", [SCHEMA, REFERENCE_DATA])
+@pytest.mark.parametrize("path", [SCHEMA, REFERENCE_DATA, RUN_FEEDBACK])
 def test_each_migration_is_one_transaction(path: Path) -> None:
     """A half-applied schema migration is worse than a failed one.
 
@@ -164,7 +165,7 @@ def test_each_migration_is_one_transaction(path: Path) -> None:
     assert sql.rstrip().lower().endswith("commit;")
 
 
-@pytest.mark.parametrize("path", [SCHEMA, REFERENCE_DATA])
+@pytest.mark.parametrize("path", [SCHEMA, REFERENCE_DATA, RUN_FEEDBACK])
 def test_each_migration_records_itself_in_the_ledger(path: Path) -> None:
     sql = path.read_text(encoding="utf-8")
     assert f"'{path.name}'" in sql, (
