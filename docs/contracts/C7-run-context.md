@@ -129,6 +129,21 @@ Voice notes come only from edits (Craft 11 §3), never from likes alone.
   "defaultMix": { "attention": 3, "expertise": 2, "decide": 1 } }
 ```
 
+**Who builds it, and the one place a run reads outside `context/`.** A client
+nobody has planned for has no map, and the first drafting run once the loop is
+live for them builds one (`ensureStrategyMap`, SCRUM-464), writes it to
+`state/<platform>/strategy-map.json` (§3) and selects from it in the same run.
+Between that write and the `collect` that stores it, the projected file still
+does not exist — so `client.getLearningContext` falls back to reading that
+state file, and reports it present with `source.projectedBy: "engine-run"`.
+Without the fallback the next run would build a second map and pay for it
+again. Once `collect` has stored the map, the projected file wins as usual.
+
+The build waits for the loop to be live — at least one projected learning file
+— so invariant 4.1 holds: a client with nothing projected behaves exactly as a
+client did before this contract, and spends no model call on a plan nobody
+will collect.
+
 ### 2.7 `craft` — the three layers, merged, with precedence resolved
 
 ```jsonc
@@ -149,7 +164,7 @@ instructions (D41), not as a checklist, and reports the ids it applied (§3).
 |---|---|---|---|
 | `state/runs/<runId>.json` | `["state","runs",runId]` | `ledger.writeRunState`, once per run, at the commit step | middleware `collect` |
 | `state/<platform>/platform-state.json` | `["state",platform,"platform-state"]` | same tool, upserted (first run builds it) | middleware `collect` |
-| `state/<platform>/strategy-map.json` | `["state",platform,"strategy-map"]` | setup / first runs (SCRUM-464) | middleware `collect` |
+| `state/<platform>/strategy-map.json` | `["state",platform,"strategy-map"]` | `ledger.writeStrategyMap`, on the first run that finds no map (SCRUM-464) | middleware `collect`; the engine reads it back until then (§2.6) |
 
 ### 3.1 The run state record
 
@@ -179,6 +194,35 @@ instructions (D41), not as a checklist, and reports the ids it applied (§3).
 
 `goal` uses the same three words as `slotStage`. `readiness` is the A1 acceptance line: which
 of the projected files the run actually found.
+
+### 3.2 The same goal line, on the client's card (C3 / SCRUM-457)
+
+The record above is what the middleware collects; it is not what a client
+reads. The portal builds a draft card's meta from the deliverable's own
+markdown — `x-drafts.ts` and `li-drafts.ts` push every `- **Label:** value`
+line onto the card — so the run renders the goal line there as well:
+
+```
+- **Goal:** show expertise
+- **For:** ops leads whose intake breaks in month two
+- **Why now:** a benchmark report landed on Monday
+```
+
+Resolved ONCE per run (`resolveGoalLine`) and used for both the card and the
+record, so the two can never disagree about why a post exists. The model's own
+`goal` / `audience` / `whyNow` win when it stated them; otherwise the stage the
+run was written for stands in, with a why-now derived from how the topic was
+chosen — D11 holds even for a silent model.
+
+**The why-now bullet carries no URL.** `classifyXMetaBullet` weighs a bullet's
+URL against a reply/quote phrase, so a why-now reading "replying to <a status
+URL>" would be taken as the draft's reply target and drive the hand-off deep
+link at the wrong post. Links belong on the bullets built to carry them.
+
+Reddit is the exception by shape, not by intent: a reply answers a live thread
+rather than choosing a subject, so its card gets `whyThread` in the v2
+envelope — a slot `envelopeToBatch` already renders — and the funnel words stay
+on the record.
 
 ## 4. Invariants
 
