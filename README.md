@@ -3,6 +3,10 @@
 FastAPI service that owns everything *configurable* about the agent platform, so
 the execution engine can stay stateless.
 
+**Before you add a product, a platform or a migration, read
+[`docs/AGENT-ARCHITECTURE.md`](docs/AGENT-ARCHITECTURE.md)** — what this service owes an
+agent at either end of a run, and why the engine never reads a database.
+
 It is the source of truth in Firestore for:
 
 - **Agents** — identity, model policy, status, tags.
