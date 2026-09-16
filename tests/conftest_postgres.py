@@ -140,7 +140,11 @@ async def config_database(migrated_dsn: str) -> AsyncIterator[Any]:
                 agent_version_steps, agent_versions, agents,
                 agent_custom_agent_keys, client_agent_config, tool_config,
                 prompt_versions, prompts, schedules, audit_log,
-                model_aliases, models, tools
+                model_aliases, models, tools,
+                run_feedback,
+                learning_settings, subject_rows, client_feedback_log, client_preferences,
+                platform_state,
+                strategy_map_rows, strategy_maps, craft_rules, run_state_records
             restart identity cascade
             """
         )

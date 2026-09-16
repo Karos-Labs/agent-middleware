@@ -20,6 +20,7 @@ from app.services.context import ContextService
 from app.services.dispatch import DispatchService
 from app.services.engine_prompts import EnginePromptService
 from app.services.feedback import FeedbackService
+from app.services.learning import LearningService
 from app.services.models import ModelService
 from app.services.prompt_store import UnifiedPromptStore
 from app.services.prompts import PromptService
@@ -112,3 +113,22 @@ async def resolve_agent(
     """
 
     return await agents.get(agent_id)
+
+
+def get_learning_service(request: Request) -> LearningService:
+    """The learning loop (C7), or a 503 naming what is missing.
+
+    Present exactly when the configuration database is (migration 0007 lives
+    there). Projection additionally needs the workspace bucket; the service
+    itself says so per call rather than this dependency refusing outright,
+    because the read and feedback routes work without a bucket.
+    """
+
+    service: LearningService | None = getattr(request.app.state, "learning_service", None)
+    if service is None:
+        raise ServiceUnavailableError(
+            "the learning loop needs the configuration database (CONFIG_DB_DSN is unset "
+            "in this environment): subject rows, the feedback log and the projected "
+            "learning context are not available here."
+        )
+    return service
