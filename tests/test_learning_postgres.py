@@ -382,8 +382,31 @@ def test_only_platform_agents_have_a_platform() -> None:
     assert platform_for_product("linkedin-agent") == "linkedin"
     assert platform_for_product("tiktok-agent") == "tiktok"
     assert platform_for_product("seo-geo-agent") is None
-    assert platform_for_product("branded-shorts-agent") is None
     assert platform_for_product(None) is None
+
+
+def test_all_three_tiktok_products_share_one_platform() -> None:
+    """D08 (SCRUM-455): three agents, one TikTok account, one subject history.
+
+    The stores are keyed on the platform rather than the product precisely so
+    this holds -- a clip and a scripted short must not be able to repeat each
+    other's subject just because they were sold as different cards.
+    """
+
+    assert platform_for_product("tiktok-clipping-agent") == "tiktok"
+    assert platform_for_product("tiktok-editing-agent") == "tiktok"
+    assert platform_for_product("tiktok-content-design-agent") == "tiktok"
+
+
+def test_branded_shorts_is_the_editing_agents_old_name_and_now_projects() -> None:
+    """It used to map to ``None``, which is why it never learned anything.
+
+    The bug was invisible: every branded-shorts run drafted, delivered and
+    collected nothing, and looked completely healthy from the outside. That is
+    the failure mode ``PRODUCT_PLATFORM_OVERRIDES`` exists to make impossible.
+    """
+
+    assert platform_for_product("branded-shorts-agent") == "tiktok"
 
 
 # --- Collect --------------------------------------------------------------------

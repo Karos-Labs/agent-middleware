@@ -219,6 +219,22 @@ URL against a reply/quote phrase, so a why-now reading "replying to <a status
 URL>" would be taken as the draft's reply target and drive the hand-off deep
 link at the wrong post. Links belong on the bullets built to carry them.
 
+An agent whose deliverable is a rendered asset takes a third shape: a
+structured `goalLine` object on the deliverable itself. Instagram and the
+three TikTok agents hand the client PNGs and mp4s — there is no drafts
+markdown to hang a `- **Label:** value` bullet on, and the caption is not the
+place for it, because the caption is the text the client pastes into the
+platform and our reasoning about funnel stages has no business travelling
+there.
+
+```jsonc
+"goalLine": { "goal": "attention", "goalText": "earn attention",
+              "audience": "…", "whyNow": "…" }
+```
+
+Same object `resolveGoalLine` returns, so the card and the record still come
+from one resolution. The portal renders it beside the asset.
+
 Reddit is the exception by shape, not by intent: a reply answers a live thread
 rather than choosing a subject, so its card gets `whyThread` in the v2
 envelope — a slot `envelopeToBatch` already renders — and the funnel words stay

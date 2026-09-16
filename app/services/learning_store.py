@@ -49,18 +49,50 @@ STATUS_FOR_ACTION: dict[str, str] = {
 }
 
 
+#: Products whose id does not spell out its platform.
+#:
+#: D08 split TikTok into three agents -- clipping, editing, content design --
+#: and every one of them posts to the SAME TikTok account. The stores are keyed
+#: on the PLATFORM, not the product, because a client has one account and one
+#: subject history on it, not one per product we happen to sell. So all three
+#: map to ``tiktok``, and adding a fourth TikTok product is one line here and
+#: nothing else: no migration, no enum, no projection change.
+#:
+#: ``branded-shorts-agent`` is the pre-rename id of the editing agent and maps
+#: to the same key, which also fixes a real gap: until this table existed it
+#: mapped to ``None``, so every branded-shorts run was dispatched with no
+#: learning context and collected nothing.
+PRODUCT_PLATFORM_OVERRIDES: dict[str, str] = {
+    "tiktok-clipping-agent": "tiktok",
+    "tiktok-editing-agent": "tiktok",
+    "tiktok-content-design-agent": "tiktok",
+    "branded-shorts-agent": "tiktok",
+}
+
+
 def platform_for_product(product_id: str | None) -> str | None:
     """``x-agent`` → ``x``; anything that is not a platform agent → ``None``.
 
-    The agent's slug IS the engine's product id (see ``dispatch._build_payload``),
-    and the platform agents are named ``<platform>-agent``. A product with no
-    platform -- the SEO audit, the landing builder, the orchestrator -- has no
-    learning context to project and nothing to collect, and the caller skips
-    it rather than projecting under a made-up key.
+    The agent's slug IS the engine's product id (see ``dispatch._build_payload``).
+    Most platform agents are named ``<platform>-agent`` and resolve by their own
+    spelling; the rest are named in ``PRODUCT_PLATFORM_OVERRIDES`` above, which
+    is consulted FIRST so a product can never be routed by an accident of its
+    name.
+
+    A product with no platform -- the SEO audit, the landing builder, the
+    orchestrator -- has no learning context to project and nothing to collect,
+    and the caller skips it rather than projecting under a made-up key.
+
+    Getting this wrong is the worst failure mode in this service, because the
+    symptom is a run that works: it drafts, it delivers, and it silently learns
+    nothing.
     """
 
     if not product_id:
         return None
+    override = PRODUCT_PLATFORM_OVERRIDES.get(product_id)
+    if override is not None:
+        return override
     head, sep, tail = product_id.partition("-agent")
     if sep and head in PLATFORMS:
         return head
@@ -811,6 +843,7 @@ __all__ = [
     "FEEDBACK_ACTIONS",
     "FUNNEL_STAGES",
     "PLATFORMS",
+    "PRODUCT_PLATFORM_OVERRIDES",
     "STATUS_FOR_ACTION",
     "SUBJECT_STATUSES",
     "LearningStore",
