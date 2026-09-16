@@ -34,6 +34,7 @@ from app.api.routes import (
     context,
     engine_prompts,
     health,
+    learning,
     models,
     prompts,
     runs,
@@ -63,6 +64,8 @@ from app.services.context import ContextService
 from app.services.dispatch import DispatchService
 from app.services.engine_prompts import EnginePromptService
 from app.services.feedback import FeedbackService
+from app.services.learning import LearningService
+from app.services.learning_store import LearningStore
 from app.services.models import ModelService
 from app.services.prompt_store import UnifiedPromptStore
 from app.services.prompts import PromptService
@@ -133,6 +136,15 @@ def build_services(
         database, run_service, prompt_service, config_database=config_database
     )
     app.state.context_service = context_service
+    # C7 (SCRUM-461): the learning loop exists exactly when its tables do.
+    # Projection additionally needs the bucket; without one the service still
+    # serves and takes rows, and says per call that nothing was projected.
+    learning_service = (
+        LearningService(LearningStore(config_database), workspace, run_service)
+        if config_database is not None
+        else None
+    )
+    app.state.learning_service = learning_service
     app.state.dispatch_service = DispatchService(
         settings,
         context_service,
@@ -141,6 +153,7 @@ def build_services(
         model_service,
         snapshots=snapshot_resolver,
         transport=snapshot_transport,
+        learning=learning_service,
     )
     app.state.snapshot_resolver = snapshot_resolver
     app.state.snapshot_transport = snapshot_transport
@@ -262,6 +275,9 @@ def create_app() -> FastAPI:
     app.include_router(configuration.router, dependencies=protected)
     app.include_router(schedules.client_router, dependencies=protected)
     app.include_router(schedules.router, dependencies=protected)
+    app.include_router(learning.router, dependencies=protected)
+    app.include_router(learning.run_router, dependencies=protected)
+    app.include_router(learning.admin_router, dependencies=protected)
 
     register_exception_handlers(app)
     return app

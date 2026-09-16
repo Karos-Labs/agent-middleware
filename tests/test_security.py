@@ -525,7 +525,10 @@ def test_every_protected_router_carries_identity_and_a_read_floor() -> None:
     #  11th  the Configuration API (S4)
     #  12th  a client's schedules (S10)
     #  13th  the schedule claim/settle protocol (S10)
-    assert len(protected_routers) == 13
+    #  14th  a client's learning context, feedback and preferences (C7)
+    #  15th  run collection into the learning tables (C7)
+    #  16th  the craft-rules catalogue (D41)
+    assert len(protected_routers) == 16
 
 
 def test_no_mutating_route_sits_at_the_read_floor() -> None:
@@ -596,6 +599,9 @@ def test_destructive_routes_require_admin() -> None:
         "POST /config/agents/{agent_slug}/versions/{version}/publish",
         "POST /config/agents/{agent_slug}/rollback",
         "DELETE /config/agents/{agent_slug}/versions/{version}",
+        # An L1 craft rule reaches every client on the platform, and a hard
+        # one cannot be overridden by anything a client learns (C7 §2.7).
+        "PUT /learning/craft-rules",
     }
 
     app = create_app()

@@ -31,6 +31,7 @@ from app.core.exceptions import (
 )
 from app.db.firestore import utcnow
 from app.services.context import ContextService
+from app.services.learning import LearningService
 from app.services.models import ModelService
 from app.services.publisher import PublisherService
 from app.services.runs import RunService
@@ -56,6 +57,7 @@ class DispatchService:
         models: ModelService,
         snapshots: SnapshotResolver | None = None,
         transport: SnapshotTransport | None = None,
+        learning: LearningService | None = None,
     ) -> None:
         self._settings = settings
         self._context = context
@@ -64,6 +66,7 @@ class DispatchService:
         self._models = models
         self._snapshots = snapshots
         self._transport = transport
+        self._learning = learning
 
     @property
     def topic_path(self) -> str:
@@ -233,6 +236,15 @@ class DispatchService:
         # Frozen before the run document is written, so the run and the message
         # carry the same configuration or neither carries one.
         snapshot, reference = await self._resolve_snapshot(context, request)
+
+        # C7: what the platform has learned about this client, projected into
+        # the workspace BEFORE the message goes out, so the run reads live
+        # data and not last week's file. Best-effort by contract (§4.1): a
+        # projection that fails is logged and the run goes out exactly as it
+        # would have before the learning loop existed. Only platform agents
+        # have a learning context; for the rest this is a no-op.
+        if self._learning is not None:
+            await self._learning.project_for_dispatch(request.client_slug, context.agent.slug)
 
         run = await self._runs.create(
             context.agent.id,
