@@ -192,6 +192,38 @@ AGENT_REQUIREMENTS: dict[str, tuple[Requirement, ...]] = {
         ),
         TOPICS,
     ),
+    # D08's three run the two workflows above under their own ids, so each
+    # needs exactly what its workflow checks at intake -- no more, or the
+    # report would tell a client they are missing something the run never asks
+    # for. Clipping and content design are `createTikTokAgentWorkflow` with a
+    # variant; editing is `createBrandedShortsAgentWorkflow`.
+    "tiktok-clipping-agent": (
+        BRAND,
+        VOICE,
+        cfg(
+            "tiktokClips",
+            supplied_by=HUMAN_DECISION + " (which shows this client holds the rights to clip)",
+        ),
+        TOPICS,
+    ),
+    "tiktok-content-design-agent": (
+        BRAND,
+        VOICE,
+        cfg(
+            "tiktokClips",
+            supplied_by=HUMAN_DECISION + " (which shows this client holds the rights to clip)",
+        ),
+        TOPICS,
+    ),
+    "tiktok-editing-agent": (
+        BRAND,
+        cfg(
+            "brandedShortsProfilePath",
+            "brandedShortsGraphicsLanguage",
+            "brandedShortsApprovedArchetypes",
+            supplied_by="the Style Exploration onboarding workflow",
+        ),
+    ),
 }
 
 

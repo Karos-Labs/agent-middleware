@@ -282,6 +282,98 @@
       "kind": "code"
     },
     {
+      "id": "00b-check-client-brief",
+      "kind": "code"
+    },
+    {
+      "id": "00b1-gather-brief-sources",
+      "kind": "code"
+    },
+    {
+      "id": "00b2-write-client-brief",
+      "kind": "agent",
+      "skill_ref": "instagram-brief@1",
+      "agent_id": "instagram-brief",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "00b3-persist-client-brief",
+      "kind": "code"
+    },
+    {
+      "id": "00c-check-template-studio",
+      "kind": "code"
+    },
+    {
+      "id": "00c1-plan-setup-budget",
+      "kind": "code"
+    },
+    {
+      "id": "00c2-gather-format-evidence",
+      "kind": "code"
+    },
+    {
+      "id": "00c3-write-design-brief",
+      "kind": "agent",
+      "skill_ref": "instagram-design-brief@1",
+      "agent_id": "instagram-design-brief",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "00c4-design-template",
+      "kind": "agent",
+      "skill_ref": "instagram-template-designer@1",
+      "agent_id": "instagram-template-designer",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "00c6-review-template-set",
+      "kind": "agent",
+      "skill_ref": "instagram-template-set-review@1",
+      "agent_id": "instagram-template-set-review",
+      "default_model": "gemini-2.5-flash",
+      "vendor": "gemini"
+    },
+    {
+      "id": "00c7-repair-template",
+      "kind": "agent",
+      "skill_ref": "instagram-template-designer@1",
+      "agent_id": "instagram-template-designer",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "00c8-store-template-set",
+      "kind": "code"
+    },
+    {
+      "id": "00d-check-visual-direction",
+      "kind": "code"
+    },
+    {
+      "id": "00d1-ingest-visual-patterns",
+      "kind": "code"
+    },
+    {
+      "id": "00d2-derive-visual-direction",
+      "kind": "agent",
+      "skill_ref": "instagram-art-director@1",
+      "agent_id": "instagram-art-director",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "00d3-persist-visual-direction",
+      "kind": "code"
+    },
+    {
+      "id": "00e-check-likeness-consent",
+      "kind": "code"
+    },
+    {
       "id": "01-open-run",
       "kind": "code"
     },
@@ -314,6 +406,18 @@
       "kind": "code"
     },
     {
+      "id": "02i-resolve-client-brief",
+      "kind": "code"
+    },
+    {
+      "id": "02j-plan-run-budget",
+      "kind": "code"
+    },
+    {
+      "id": "02k-read-structural-memory",
+      "kind": "code"
+    },
+    {
       "id": "03-claim-topic",
       "kind": "code"
     },
@@ -322,16 +426,40 @@
       "kind": "code"
     },
     {
-      "id": "04a-research-pull",
+      "id": "03d-select-content-mode",
+      "kind": "code"
+    },
+    {
+      "id": "03e-topic-signals",
+      "kind": "code"
+    },
+    {
+      "id": "03f-rank-topic-candidates",
+      "kind": "code"
+    },
+    {
+      "id": "03g-select-topic",
+      "kind": "code"
+    },
+    {
+      "id": "04a3-fetch-primary-sources",
       "kind": "code"
     },
     {
       "id": "04b-research-extract-facts",
       "kind": "agent",
-      "skill_ref": "instagram-research@1",
+      "skill_ref": "instagram-research@2",
       "agent_id": "instagram-research",
       "default_model": "gemini-2.5-flash",
       "vendor": "gemini"
+    },
+    {
+      "id": "04b1-headline-fact-cards",
+      "kind": "code"
+    },
+    {
+      "id": "04b2-dedupe-fact-cards",
+      "kind": "code"
     },
     {
       "id": "04c-resolve-templates",
@@ -358,9 +486,53 @@
       "kind": "code"
     },
     {
+      "id": "04i-propose-angles",
+      "kind": "agent",
+      "skill_ref": "instagram-angle@1",
+      "agent_id": "instagram-angle",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "04i2-select-series",
+      "kind": "code"
+    },
+    {
+      "id": "04j-select-angle",
+      "kind": "code"
+    },
+    {
+      "id": "04k-freeze-generation-style",
+      "kind": "code"
+    },
+    {
+      "id": "04l-language-register",
+      "kind": "code"
+    },
+    {
+      "id": "04m-concept-eligibility",
+      "kind": "code"
+    },
+    {
+      "id": "04m2-imagery-band",
+      "kind": "code"
+    },
+    {
+      "id": "04n-design-concept",
+      "kind": "agent",
+      "skill_ref": "instagram-concept@1",
+      "agent_id": "instagram-concept",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "04o-apply-concept",
+      "kind": "code"
+    },
+    {
       "id": "05-write-copy",
       "kind": "agent",
-      "skill_ref": "instagram-copy@11",
+      "skill_ref": "instagram-copy@20",
       "agent_id": "instagram-copy",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
@@ -378,16 +550,28 @@
       "kind": "code"
     },
     {
+      "id": "05y-read-media-library",
+      "kind": "code"
+    },
+    {
       "id": "05z-attach-user-media",
       "kind": "code"
     },
     {
       "id": "06-vet-images",
       "kind": "agent",
-      "skill_ref": "instagram-image-vet@2",
+      "skill_ref": "instagram-image-vet@5",
       "agent_id": "instagram-image-vet",
       "default_model": "gemini-2.5-flash",
       "vendor": "gemini"
+    },
+    {
+      "id": "06a-vetting-unavailable",
+      "kind": "code"
+    },
+    {
+      "id": "06d1-inspect-concept-image",
+      "kind": "code"
     },
     {
       "id": "06f-verify-images-on-disk",
@@ -410,6 +594,38 @@
       "kind": "code"
     },
     {
+      "id": "07e2-native-conventions",
+      "kind": "code"
+    },
+    {
+      "id": "07h-default-render-rules",
+      "kind": "code"
+    },
+    {
+      "id": "07h2-word-budget",
+      "kind": "code"
+    },
+    {
+      "id": "07i-value-signals",
+      "kind": "code"
+    },
+    {
+      "id": "07i1-verify-lead-claim",
+      "kind": "code"
+    },
+    {
+      "id": "07i2-numbers-in-facts",
+      "kind": "code"
+    },
+    {
+      "id": "07k-skeleton-variety",
+      "kind": "code"
+    },
+    {
+      "id": "07r-repair-source-refs",
+      "kind": "code"
+    },
+    {
       "id": "08-render-carousel",
       "kind": "code"
     },
@@ -419,6 +635,26 @@
     },
     {
       "id": "08a-render-fallback-typographic",
+      "kind": "code"
+    },
+    {
+      "id": "08a1-interest-floor",
+      "kind": "code"
+    },
+    {
+      "id": "08a1b-relayout-for-interest",
+      "kind": "code"
+    },
+    {
+      "id": "08a1c-render-relayout",
+      "kind": "code"
+    },
+    {
+      "id": "08a1d-interest-floor-recheck",
+      "kind": "code"
+    },
+    {
+      "id": "08a1e-skeleton-occupancy",
       "kind": "code"
     },
     {
@@ -436,10 +672,22 @@
     {
       "id": "08b-visual-qa",
       "kind": "agent",
-      "skill_ref": "instagram-visual-qa@3",
+      "skill_ref": "instagram-visual-qa@4",
       "agent_id": "instagram-visual-qa",
       "default_model": "gemini-2.5-flash",
       "vendor": "gemini"
+    },
+    {
+      "id": "08c1-package-checks",
+      "kind": "code"
+    },
+    {
+      "id": "08c1-package-checks-retry",
+      "kind": "code"
+    },
+    {
+      "id": "08c3-timing-note",
+      "kind": "code"
     },
     {
       "id": "09a-batch-review",
@@ -480,6 +728,14 @@
       "kind": "code"
     },
     {
+      "id": "09f-auto-promote-templates",
+      "kind": "code"
+    },
+    {
+      "id": "09g-record-media-library-use",
+      "kind": "code"
+    },
+    {
       "id": "guardrail-verify",
       "kind": "agent",
       "agent_id": "guardrail-verify",
@@ -502,6 +758,22 @@
     },
     {
       "id": "01e-enforce-context-doc-policy",
+      "kind": "code"
+    },
+    {
+      "id": "01f-audit-client-site",
+      "kind": "code"
+    },
+    {
+      "id": "01g-research-client",
+      "kind": "code"
+    },
+    {
+      "id": "01h-audit-competitor-sites",
+      "kind": "code"
+    },
+    {
+      "id": "01i-load-seo-geo-snapshot",
       "kind": "code"
     },
     {
@@ -580,12 +852,6 @@
       "vendor": "anthropic"
     },
     {
-      "id": "08-human-review",
-      "kind": "gate",
-      "is_gate": true,
-      "gate_kind": "landing_craft_review"
-    },
-    {
       "id": "09-fix",
       "kind": "agent",
       "skill_ref": "landing-fix@1",
@@ -603,7 +869,9 @@
     },
     {
       "id": "12-human-review",
-      "kind": "code"
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "landing_craft_review"
     },
     {
       "id": "13-deploy-live",
@@ -673,7 +941,7 @@
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "linkedin-craft@5",
+      "skill_ref": "linkedin-craft@7",
       "agent_id": "linkedin-draft",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
@@ -692,6 +960,10 @@
     },
     {
       "id": "12-render-preview-check",
+      "kind": "code"
+    },
+    {
+      "id": "12b-verify-link-placement",
       "kind": "code"
     },
     {
@@ -913,14 +1185,6 @@
       "kind": "code"
     },
     {
-      "id": "12-draft-reply",
-      "kind": "agent",
-      "skill_ref": "reddit-craft@5",
-      "agent_id": "reddit-draft",
-      "default_model": "claude-opus-4-8",
-      "vendor": "anthropic"
-    },
-    {
       "id": "13-verify-numbers-sourced",
       "kind": "code"
     },
@@ -1067,6 +1331,18 @@
       "kind": "code"
     },
     {
+      "id": "02a-draft-prompt-set-agent",
+      "kind": "agent",
+      "skill_ref": "seo-geo-prompt-set@1",
+      "agent_id": "seo-geo-prompt-set",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "02b-finalize-prompt-set",
+      "kind": "code"
+    },
+    {
       "id": "03-prompt-set-review",
       "kind": "gate",
       "is_gate": true,
@@ -1113,14 +1389,24 @@
     {
       "id": "14-draft-narrative",
       "kind": "agent",
-      "skill_ref": "seo-geo-narrative@2",
+      "skill_ref": "seo-geo-narrative@3",
       "agent_id": "seo-geo-narrative",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
     },
     {
+      "id": "14b-ground-narrative-numbers",
+      "kind": "code"
+    },
+    {
       "id": "15-verify-narrative-numbers",
       "kind": "code"
+    },
+    {
+      "id": "16-batch-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
     },
     {
       "id": "17-assemble-report",
@@ -1163,7 +1449,7 @@
     {
       "id": "01d-topic-scout",
       "kind": "agent",
-      "skill_ref": "tiktok-topic-scout@1",
+      "skill_ref": "tiktok-topic-scout@2",
       "agent_id": "tiktok-topic-scout",
       "default_model": "gemini-2.5-pro",
       "vendor": "gemini"
@@ -1185,15 +1471,27 @@
       "vendor": "gemini"
     },
     {
-      "id": "03u-script",
-      "kind": "agent",
-      "skill_ref": "tiktok-script@2",
-      "agent_id": "tiktok-script",
-      "default_model": "claude-sonnet-4-6",
-      "vendor": "anthropic"
+      "id": "03r-read-client-voice",
+      "kind": "code"
+    },
+    {
+      "id": "03s-script",
+      "kind": "code"
+    },
+    {
+      "id": "03v-estimate-cost",
+      "kind": "code"
+    },
+    {
+      "id": "03w-budget-fallback",
+      "kind": "code"
     },
     {
       "id": "04-cut-bounds",
+      "kind": "code"
+    },
+    {
+      "id": "04h-hook-plate",
       "kind": "code"
     },
     {
@@ -1203,14 +1501,6 @@
     {
       "id": "05-voiceover",
       "kind": "code"
-    },
-    {
-      "id": "06a-commentary",
-      "kind": "agent",
-      "skill_ref": "tiktok-commentary@4",
-      "agent_id": "tiktok-commentary",
-      "default_model": "claude-sonnet-4-6",
-      "vendor": "anthropic"
     },
     {
       "id": "07-compliance",
@@ -1237,6 +1527,14 @@
       "kind": "code"
     },
     {
+      "id": "10c-record-pending-excerpt",
+      "kind": "code"
+    },
+    {
+      "id": "10d-repick-weak-beats",
+      "kind": "code"
+    },
+    {
       "id": "11-clip-review",
       "kind": "gate",
       "is_gate": true,
@@ -1244,6 +1542,399 @@
     },
     {
       "id": "12-persist-deliverable",
+      "kind": "code"
+    },
+    {
+      "id": "13-commit-and-record",
+      "kind": "code"
+    },
+    {
+      "id": "guardrail-verify",
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "guardrail-verify-load-topics",
+      "kind": "code"
+    }
+  ],
+  "tiktok-clipping-agent": [
+    {
+      "id": "00-intake",
+      "kind": "code"
+    },
+    {
+      "id": "00a-read-profile",
+      "kind": "code"
+    },
+    {
+      "id": "00b-seed-catalog",
+      "kind": "code"
+    },
+    {
+      "id": "01-claim-topic",
+      "kind": "code"
+    },
+    {
+      "id": "01a-check-media-source",
+      "kind": "code"
+    },
+    {
+      "id": "01b-resolve-source",
+      "kind": "code"
+    },
+    {
+      "id": "01c-discover-topics",
+      "kind": "code"
+    },
+    {
+      "id": "01d-topic-scout",
+      "kind": "agent",
+      "skill_ref": "tiktok-topic-scout@2",
+      "agent_id": "tiktok-topic-scout",
+      "default_model": "gemini-2.5-pro",
+      "vendor": "gemini"
+    },
+    {
+      "id": "02-transcribe",
+      "kind": "code"
+    },
+    {
+      "id": "03-select-moment",
+      "kind": "code"
+    },
+    {
+      "id": "03a-moment",
+      "kind": "agent",
+      "skill_ref": "tiktok-moment@2",
+      "agent_id": "tiktok-moment",
+      "default_model": "gemini-2.5-pro",
+      "vendor": "gemini"
+    },
+    {
+      "id": "03r-read-client-voice",
+      "kind": "code"
+    },
+    {
+      "id": "03s-script",
+      "kind": "code"
+    },
+    {
+      "id": "03v-estimate-cost",
+      "kind": "code"
+    },
+    {
+      "id": "03w-budget-fallback",
+      "kind": "code"
+    },
+    {
+      "id": "04-cut-bounds",
+      "kind": "code"
+    },
+    {
+      "id": "04h-hook-plate",
+      "kind": "code"
+    },
+    {
+      "id": "04p-plate",
+      "kind": "code"
+    },
+    {
+      "id": "05-voiceover",
+      "kind": "code"
+    },
+    {
+      "id": "07-compliance",
+      "kind": "code"
+    },
+    {
+      "id": "07b-load-video-brand",
+      "kind": "code"
+    },
+    {
+      "id": "08-render",
+      "kind": "code"
+    },
+    {
+      "id": "09-qa-gate",
+      "kind": "code"
+    },
+    {
+      "id": "10a-upload-clip",
+      "kind": "code"
+    },
+    {
+      "id": "10b-visual-qa",
+      "kind": "code"
+    },
+    {
+      "id": "10c-record-pending-excerpt",
+      "kind": "code"
+    },
+    {
+      "id": "10d-repick-weak-beats",
+      "kind": "code"
+    },
+    {
+      "id": "11-clip-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
+      "id": "12-persist-deliverable",
+      "kind": "code"
+    },
+    {
+      "id": "13-commit-and-record",
+      "kind": "code"
+    },
+    {
+      "id": "guardrail-verify",
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "guardrail-verify-load-topics",
+      "kind": "code"
+    }
+  ],
+  "tiktok-content-design-agent": [
+    {
+      "id": "00-intake",
+      "kind": "code"
+    },
+    {
+      "id": "00a-read-profile",
+      "kind": "code"
+    },
+    {
+      "id": "00b-seed-catalog",
+      "kind": "code"
+    },
+    {
+      "id": "01-claim-topic",
+      "kind": "code"
+    },
+    {
+      "id": "01a-check-media-source",
+      "kind": "code"
+    },
+    {
+      "id": "01b-resolve-source",
+      "kind": "code"
+    },
+    {
+      "id": "01c-discover-topics",
+      "kind": "code"
+    },
+    {
+      "id": "01d-topic-scout",
+      "kind": "agent",
+      "skill_ref": "tiktok-topic-scout@2",
+      "agent_id": "tiktok-topic-scout",
+      "default_model": "gemini-2.5-pro",
+      "vendor": "gemini"
+    },
+    {
+      "id": "02-transcribe",
+      "kind": "code"
+    },
+    {
+      "id": "03-select-moment",
+      "kind": "code"
+    },
+    {
+      "id": "03a-moment",
+      "kind": "agent",
+      "skill_ref": "tiktok-moment@2",
+      "agent_id": "tiktok-moment",
+      "default_model": "gemini-2.5-pro",
+      "vendor": "gemini"
+    },
+    {
+      "id": "03r-read-client-voice",
+      "kind": "code"
+    },
+    {
+      "id": "03s-script",
+      "kind": "code"
+    },
+    {
+      "id": "03v-estimate-cost",
+      "kind": "code"
+    },
+    {
+      "id": "03w-budget-fallback",
+      "kind": "code"
+    },
+    {
+      "id": "04-cut-bounds",
+      "kind": "code"
+    },
+    {
+      "id": "04h-hook-plate",
+      "kind": "code"
+    },
+    {
+      "id": "04p-plate",
+      "kind": "code"
+    },
+    {
+      "id": "05-voiceover",
+      "kind": "code"
+    },
+    {
+      "id": "07-compliance",
+      "kind": "code"
+    },
+    {
+      "id": "07b-load-video-brand",
+      "kind": "code"
+    },
+    {
+      "id": "08-render",
+      "kind": "code"
+    },
+    {
+      "id": "09-qa-gate",
+      "kind": "code"
+    },
+    {
+      "id": "10a-upload-clip",
+      "kind": "code"
+    },
+    {
+      "id": "10b-visual-qa",
+      "kind": "code"
+    },
+    {
+      "id": "10c-record-pending-excerpt",
+      "kind": "code"
+    },
+    {
+      "id": "10d-repick-weak-beats",
+      "kind": "code"
+    },
+    {
+      "id": "11-clip-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "batch_review"
+    },
+    {
+      "id": "12-persist-deliverable",
+      "kind": "code"
+    },
+    {
+      "id": "13-commit-and-record",
+      "kind": "code"
+    },
+    {
+      "id": "guardrail-verify",
+      "kind": "agent",
+      "agent_id": "guardrail-verify",
+      "default_model": "claude-haiku-4-5-20251001",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "guardrail-verify-load-topics",
+      "kind": "code"
+    }
+  ],
+  "tiktok-editing-agent": [
+    {
+      "id": "00-brand-resolve",
+      "kind": "code"
+    },
+    {
+      "id": "01-load-intake",
+      "kind": "code"
+    },
+    {
+      "id": "01b-materialize-inputs",
+      "kind": "code"
+    },
+    {
+      "id": "01c-assets-check",
+      "kind": "code"
+    },
+    {
+      "id": "02-load-brand-profile",
+      "kind": "code"
+    },
+    {
+      "id": "02a-load-asset-library",
+      "kind": "code"
+    },
+    {
+      "id": "02c-enforce-context-doc-policy",
+      "kind": "code"
+    },
+    {
+      "id": "03-transcribe",
+      "kind": "code"
+    },
+    {
+      "id": "04-plan-cut",
+      "kind": "code"
+    },
+    {
+      "id": "05-cut-gate",
+      "kind": "code"
+    },
+    {
+      "id": "06-highlights",
+      "kind": "agent",
+      "skill_ref": "branded-shorts-highlights@1",
+      "agent_id": "branded-shorts-highlights",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "07-color-grade",
+      "kind": "code"
+    },
+    {
+      "id": "07b-render-base",
+      "kind": "code"
+    },
+    {
+      "id": "08a-plan-graphics",
+      "kind": "agent",
+      "skill_ref": "branded-shorts-graphics@3",
+      "agent_id": "branded-shorts-graphics",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
+      "id": "08a2-validate-archetypes",
+      "kind": "code"
+    },
+    {
+      "id": "08b-render-and-gate",
+      "kind": "code"
+    },
+    {
+      "id": "08c-plates-and-render",
+      "kind": "code"
+    },
+    {
+      "id": "09-self-eval-gate",
+      "kind": "code"
+    },
+    {
+      "id": "10-delivery-review",
+      "kind": "gate",
+      "is_gate": true,
+      "gate_kind": "branded_shorts_delivery_review"
+    },
+    {
+      "id": "10a-upload-to-gcs",
       "kind": "code"
     },
     {
@@ -1306,7 +1997,7 @@
     {
       "id": "10-draft-post",
       "kind": "agent",
-      "skill_ref": "x-craft@5",
+      "skill_ref": "x-craft@7",
       "agent_id": "x-draft",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"

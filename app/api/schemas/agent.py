@@ -116,6 +116,16 @@ class AgentRead(BaseModel):
     custom_agent_keys: list[str] = Field(default_factory=list)
     gates: list[str] = Field(default_factory=list)
     readiness: AgentReadiness = Field(default_factory=AgentReadiness)
+    #: The slug of the product that replaced this one, when a product decision
+    #: renamed or split it (D08: ``tiktok-agent`` became clipping and content
+    #: design; ``branded-shorts-agent`` became editing). The row stays ACTIVE --
+    #: grants, schedules and the learning store still name the old id, and a
+    #: retired row would turn every one of those dispatches into a 404 -- but a
+    #: catalog should not offer both the old name and the new one as if a
+    #: person had two things to choose between. Consumers hide a superseded row
+    #: from surfaces where products are picked and keep routing to it where an
+    #: existing reference already names it.
+    superseded_by: str | None = None
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime

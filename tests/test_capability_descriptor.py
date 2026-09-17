@@ -28,11 +28,13 @@ from scripts.seed_all_agents import (
     build_document,
     build_legacy_document,
     descriptor_for,
+    load_stages,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-#: agent-engine's KNOWN_PRODUCT_IDS, verbatim at 89bb8c4. Copied rather than
+#: agent-engine's KNOWN_PRODUCT_IDS, verbatim (apps/agent-server/src/wiring/
+#: workflows.ts, after D08 added the three TikTok ids). Copied rather than
 #: read across the repository boundary: the seam is the wire, not a relative
 #: path into a sibling checkout that may not exist on a CI runner. The test
 #: below fails if the catalog drifts from it, which is the drift that matters.
@@ -45,12 +47,24 @@ KNOWN_PRODUCT_IDS = (
     "newsletter-agent",
     "campaign-orchestrator",
     "landing-builder-agent",
-    "branded-shorts-agent",
     "reputation-agent",
     "seo-geo-agent",
     "intel-report-agent",
+    "tiktok-clipping-agent",
+    "tiktok-editing-agent",
+    "tiktok-content-design-agent",
     "tiktok-agent",
+    "branded-shorts-agent",
 )
+
+#: The two ids D08 replaced. The engine still dispatches them (one `return`
+#: under stacked case labels), grants and schedules still name them, so they
+#: keep an ACTIVE row -- but a catalog must not offer them beside their
+#: successors, and `superseded_by` is how a row says so.
+SUPERSEDED = {
+    "tiktok-agent": "tiktok-clipping-agent",
+    "branded-shorts-agent": "tiktok-editing-agent",
+}
 
 
 @pytest.fixture(scope="module")
@@ -133,10 +147,29 @@ class TestDerivedHalves:
             descriptor = descriptor_for(slug, stages[slug])
             assert descriptor["gates"], f"{slug} reports no human gate"
 
-    def test_seo_geo_reports_both_of_its_gates(self, stages: dict) -> None:
+    def test_gates_survive_the_loader_that_the_real_seed_path_uses(self) -> None:
+        # The other gate tests read engine_stages.json RAW. The seed script
+        # does not: it reads through `load_stages()`, which rebuilds each stage
+        # and used to drop `gate_kind` -- so every document actually written to
+        # Firestore carried `gates: []` while this file stayed green. Assert on
+        # the shape the seed writes, not the shape the generator produced.
+        loaded = load_stages()
+        for entry in CATALOG:
+            document = build_document(entry, loaded[entry["slug"]], "now")
+            assert document["gates"], f"{entry['slug']} seeds with no gate kinds"
+        assert build_document(
+            next(e for e in CATALOG if e["slug"] == "seo-geo-agent"), loaded["seo-geo-agent"], "now"
+        )["gates"] == ["prompt_set_review", "fix_generation_review", "batch_review"]
+
+    def test_seo_geo_reports_all_three_of_its_gates(self, stages: dict) -> None:
+        # Three since the engine put `16-batch-review` immediately before
+        # `finalizeDeliverable` (create-seo-geo-agent-workflow.ts:1171). This
+        # pin said two for as long as engine_stages.json went unregenerated --
+        # which is the staleness the generator's --check exists to make loud.
         assert descriptor_for("seo-geo-agent", stages["seo-geo-agent"])["gates"] == [
             "prompt_set_review",
             "fix_generation_review",
+            "batch_review",
         ]
 
     def test_readiness_is_read_from_the_report_not_retyped(self, stages: dict) -> None:
@@ -179,7 +212,32 @@ class TestDerivedHalves:
             for slug in KNOWN_PRODUCT_IDS
             if descriptor_for(slug, stages[slug])["consumes_media"]
         }
-        assert consuming == {"instagram-agent", "tiktok-agent", "branded-shorts-agent"}
+        assert consuming == {
+            "instagram-agent",
+            "tiktok-agent",
+            "branded-shorts-agent",
+            # D08: the same two workflows under their new ids. Content design is
+            # absent on purpose -- it generates footage and its launch profile
+            # has no attachment box, so nothing arrives for it to consume.
+            "tiktok-clipping-agent",
+            "tiktok-editing-agent",
+        }
+
+    def test_a_superseded_row_names_a_live_successor_and_nothing_else_is_superseded(self) -> None:
+        by_slug = {e["slug"]: e for e in CATALOG}
+        superseded = {
+            slug: e.get("superseded_by") for slug, e in by_slug.items() if e.get("superseded_by")
+        }
+        assert superseded == SUPERSEDED
+        for old, new in superseded.items():
+            assert new in by_slug, f"{old} is superseded by {new}, which has no catalog row"
+            assert by_slug[new].get("superseded_by") is None, (
+                f"{new} is itself superseded -- a chain, not a rename"
+            )
+            # The successor must be a real product of its own, not the old row
+            # renamed in place: a different slug, and the same status the old
+            # row keeps, because retiring the old one would 404 every grant.
+            assert new != old
 
 
 class TestPortalKeyMapping:

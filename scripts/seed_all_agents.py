@@ -205,7 +205,14 @@ CATALOG: tuple[dict[str, Any], ...] = (
         ],
     },
     {
+        # D08 renamed this product "TikTok editing" and gave it its own id,
+        # `tiktok-editing-agent`, which the engine dispatches to the SAME
+        # workflow (wiring/workflows.ts stacks the two case labels over one
+        # `return`). This row stays, and stays active, because grants, schedules
+        # and the learning store still say `branded-shorts-agent`; what changes
+        # is that no catalog offers it beside its successor as a second choice.
         "slug": "branded-shorts-agent",
+        "superseded_by": "tiktok-editing-agent",
         "name": "Branded Shorts Video Creator",
         "description": (
             "Cuts short-form video from a source recording, planning motion graphics from the "
@@ -363,7 +370,16 @@ CATALOG: tuple[dict[str, Any], ...] = (
         ],
     },
     {
+        # D08 split this into two products by what the client hands over: an
+        # episode to clip (`tiktok-clipping-agent`) or nothing at all
+        # (`tiktok-content-design-agent`). Both run this same workflow with a
+        # `variant`; this id runs it as "auto", which picks by input. Kept
+        # active for the references that already name it -- see the note on
+        # branded-shorts-agent above -- and hidden from catalogs by
+        # `superseded_by`. Named at clipping because that is the half every
+        # existing grant was sold as: "TikTok Commentary Clips".
         "slug": "tiktok-agent",
+        "superseded_by": "tiktok-clipping-agent",
         "name": "TikTok Commentary Clips",
         "description": (
             "Finds the single best moment in a long-form episode, cuts it on sentence boundaries, "
@@ -388,6 +404,118 @@ CATALOG: tuple[dict[str, Any], ...] = (
                 "label": "A specific moment to clip?",
                 "required": False,
                 "placeholder": "Leave blank to take the next candidate from the topic catalog",
+            },
+        ],
+    },
+    # ── D08: TikTok is three products with three inputs ──
+    #
+    # Names, blurbs and order match karos-portal's roster rows
+    # (`scripts/sync-engine-agent-roster.ts`) word for word, because the whole
+    # point of registering them here is that the staff catalog and a client's
+    # agents page show the SAME three things. A client picks by what is in
+    # their hand -- an episode, their own recording, or nothing -- and the
+    # `required_inputs` below ask for exactly that and no more.
+    #
+    # Credit costs are inherited from the workflow each one runs (clipping and
+    # content design from tiktok-agent, editing from branded-shorts-agent).
+    # That is a placeholder carried forward, not a pricing decision: product
+    # should confirm all three.
+    {
+        "slug": "tiktok-clipping-agent",
+        "name": "TikTok clipping",
+        "description": (
+            "Finds the moment worth clipping inside a long recording -- the client's own or "
+            "a show on their source list -- writes the hook and caption in the client's "
+            "voice, and cuts a captioned vertical clip. On the calendar; sequencing decides "
+            "which clip goes when."
+        ),
+        "icon": "Scissors",
+        "category": "social",
+        "credit_cost": 12,
+        "agent_type": "tiktok_clip",
+        "tags": ["social", "tiktok", "video", "draft-only", "d08"],
+        "required_inputs": [
+            {
+                "key": "request",
+                "type": "textarea",
+                "label": "What the clip should say, or a moment to find",
+                "required": False,
+                "placeholder": "Leave blank to take the next candidate from the topic catalog",
+            },
+            {
+                "key": "source_url",
+                "type": "text",
+                "label": "Episode to clip from",
+                "required": False,
+                "placeholder": (
+                    "A link to the recording; leave blank to use the client's source list"
+                ),
+            },
+        ],
+    },
+    {
+        "slug": "tiktok-editing-agent",
+        "name": "TikTok editing",
+        "description": (
+            "Formerly Branded shorts: turns one video the client recorded into a finished vertical "
+            "short -- gaps cut, colour cleaned, on-brand captions and graphics. On demand, outside "
+            "sequencing (D19): no topic planning and no calendar slot to fill."
+        ),
+        "icon": "Film",
+        "category": "video",
+        "credit_cost": 45,
+        "agent_type": "branded_shorts",
+        "tags": ["video", "tiktok", "shorts", "on-demand", "d08"],
+        # Albert's five fields, as the portal's launch profile asks them.
+        "required_inputs": [
+            {
+                "key": "request",
+                "type": "textarea",
+                "label": "What is this video for?",
+                "required": True,
+            },
+            {
+                "key": "source_url",
+                "type": "text",
+                "label": "Your recording",
+                "required": True,
+                "placeholder": "A link to the video you recorded",
+            },
+            {"key": "platform", "type": "text", "label": "Platform", "required": False},
+            {"key": "duration", "type": "text", "label": "Target duration", "required": False},
+            {"key": "cta", "type": "text", "label": "Call to action", "required": False},
+            {
+                "key": "editing_notes",
+                "type": "textarea",
+                "label": "Editing notes",
+                "required": False,
+            },
+        ],
+    },
+    {
+        # D20: ships as beta. The control plane has no band concept either (D09
+        # is unbuilt), so the marker rides in the name here exactly as it does
+        # in the portal roster -- one honest label in two places rather than a
+        # taxonomy invented in passing.
+        "slug": "tiktok-content-design-agent",
+        "name": "TikTok content design (beta)",
+        "description": (
+            "Makes a video from nothing. Writes the script, assembles visuals from stock or "
+            "generated footage, adds voice and sound. The hardest of the three with today's "
+            "technology -- ships as beta (D20) and improves."
+        ),
+        "icon": "Sparkles",
+        "category": "social",
+        "credit_cost": 12,
+        "agent_type": "tiktok_clip",
+        "tags": ["social", "tiktok", "video", "draft-only", "beta", "d08"],
+        "required_inputs": [
+            {
+                "key": "request",
+                "type": "textarea",
+                "label": "What should the video be about?",
+                "required": False,
+                "placeholder": "Leave blank to take the next subject from the topic catalog",
             },
         ],
     },
@@ -456,6 +584,16 @@ def load_stages() -> dict[str, list[dict[str, Any]]]:
                 # A gate pauses for a human, which is the difference between an
                 # agent that finishes on its own and one that waits.
                 "is_gate": step["kind"] == "gate",
+                # The gate's kind, for `descriptor_for`, which lists the kinds a
+                # product pauses on. This field was dropped here for as long as
+                # the loader existed, so `descriptor_for` -- reading the loaded
+                # shape, not the raw file -- found `is_gate` and no kind, and
+                # wrote `gates: []` onto every seeded document. The test that
+                # guards `gates` fed `descriptor_for` the RAW json, where the
+                # kind survives, and so passed while prep said every agent
+                # finishes on its own. `test_gates_survive_the_loader` now goes
+                # through this function.
+                "gate_kind": step.get("gate_kind"),
                 # Carried through, not just collapsed into `is_gate`. Only an
                 # "ai" stage calls a model, and the Studio offers its per-stage
                 # model picker on exactly those -- so dropping this field made
@@ -558,6 +696,30 @@ DESCRIPTORS: dict[str, dict[str, Any]] = {
         "platforms": ["tiktok", "instagram"],
         "consumes_media": True,
         "custom_agent_keys": ["branded-shorts"],
+    },
+    # ── D08's three. Same workflows as the two rows above, under the names the
+    # product decision gives them; each portal key routes to exactly one. ──
+    "tiktok-clipping-agent": {
+        "capabilities": ["draft_social_post", "produce_video"],
+        "platforms": ["tiktok"],
+        # The episode it clips from arrives as a `source` asset when the client
+        # attaches one (create-tiktok-agent-workflow.ts:237, firstAsset).
+        "consumes_media": True,
+        "custom_agent_keys": ["karos-tiktok-clipping"],
+    },
+    "tiktok-editing-agent": {
+        "capabilities": ["produce_video"],
+        "platforms": ["tiktok", "instagram"],
+        "consumes_media": True,
+        "custom_agent_keys": ["karos-tiktok-editing"],
+    },
+    "tiktok-content-design-agent": {
+        # Generates its own footage; the portal's launch profile offers no
+        # attachment box, so nothing arrives under `mediaAssets` to consume.
+        "capabilities": ["draft_social_post", "produce_video"],
+        "platforms": ["tiktok"],
+        "consumes_media": False,
+        "custom_agent_keys": ["karos-tiktok-content-design"],
     },
     "blog-agent": {
         "capabilities": ["draft_article"],
@@ -721,6 +883,10 @@ def build_document(entry: dict[str, Any], stages: list[dict[str, Any]], now: Any
         # Per entry, defaulting to public: every drafting agent is, and the one
         # that is not says so in its own row with the reason.
         "is_public": entry.get("is_public", True),
+        # Explicit None on every row, so a consumer reads a definite "no" rather
+        # than a missing field it has to interpret (same reasoning as the
+        # legacy document's empty lists).
+        "superseded_by": entry.get("superseded_by"),
         "required_inputs": [
             {
                 "key": i["key"],
@@ -771,6 +937,7 @@ def build_legacy_document(entry: dict[str, Any], now: Any) -> dict[str, Any]:
         # Not client-facing: the portal already renders these from its own
         # customAgents; the row exists so the CHAT ROUTER can resolve the key.
         "is_public": False,
+        "superseded_by": None,
         "required_inputs": [],
         "stages": [],
         # No stages to be read-only about. False rather than True so nothing
