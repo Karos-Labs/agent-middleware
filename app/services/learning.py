@@ -410,7 +410,8 @@ class LearningService:
             # A run of ours that was never published has no engine-side id and
             # no state file either; falling back to `run_id` keeps the "wrote
             # no state" answer below rather than raising here.
-            engine_run_id = f"pubsub-{message_id}" if isinstance(message_id, str) and message_id else run_id
+            published = isinstance(message_id, str) and bool(message_id)
+            engine_run_id = f"pubsub-{message_id}" if published else run_id
             return run, engine_run_id
 
         if run_id.startswith("pubsub-"):
