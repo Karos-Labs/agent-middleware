@@ -93,6 +93,24 @@ async def _agent(api: AsyncClient, slug: str) -> dict[str, Any]:
     return created
 
 
+async def _dispatch(api: AsyncClient, agent: dict[str, Any]) -> str:
+    """Dispatch a run and answer with the id **agent-engine** will use for it.
+
+    THE ENGINE DOES NOT USE OUR RUN ID. It derives its own from Pub/Sub's
+    message id -- `pubsub-<messageId>`, see its `queue-consumer.ts` -- and that
+    is the id in every path it writes and the only one the portal ever holds.
+    These tests used to write the state file under the id this service minted,
+    which is a file the engine would never have produced; collect passed
+    against a fixture that could not occur in production, and in production it
+    answered "the run wrote no state file" about every run that had written
+    one. Fixtures address the engine's id from here on.
+    """
+
+    response = await api.post(f"/agents/{agent['id']}/jobs", json={"client_slug": SLUG})
+    assert response.status_code == 202, response.text
+    return f"pubsub-{response.json()['pubsub_message_id']}"
+
+
 def _read(workspace: FakeWorkspaceStore, path: str) -> dict[str, Any] | None:
     text = workspace.objects.get(path)
     return json.loads(text) if text else None
@@ -428,8 +446,7 @@ async def test_collect_lands_the_record_the_subject_row_and_the_platform_state(
             ]
         },
     )
-    dispatched = await api.post(f"/agents/{agent['id']}/jobs", json={"client_slug": SLUG})
-    run_id = dispatched.json()["run"]["id"]
+    run_id = await _dispatch(api, agent)
 
     # What the engine leaves behind (ledger.writeRunState).
     fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
@@ -529,9 +546,7 @@ async def test_collect_on_a_run_that_wrote_nothing_is_an_answer_not_an_error(
     api: AsyncClient,
 ) -> None:
     agent = await _agent(api, "x-agent")
-    run_id = (await api.post(f"/agents/{agent['id']}/jobs", json={"client_slug": SLUG})).json()[
-        "run"
-    ]["id"]
+    run_id = await _dispatch(api, agent)
 
     response = await api.post(f"/runs/{run_id}/collect")
     assert response.status_code == 200, response.text
@@ -548,9 +563,7 @@ async def test_collect_takes_a_strategy_map_a_setup_run_built(
     api: AsyncClient, fake_workspace: FakeWorkspaceStore
 ) -> None:
     agent = await _agent(api, "x-agent")
-    run_id = (await api.post(f"/agents/{agent['id']}/jobs", json={"client_slug": SLUG})).json()[
-        "run"
-    ]["id"]
+    run_id = await _dispatch(api, agent)
     fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(
         _record(run_id, subjectRow={"subject": "first post", "stage": "attention"})
     )
@@ -576,6 +589,48 @@ async def test_collect_takes_a_strategy_map_a_setup_run_built(
     assert [r["id"] for r in strategy_file["data"]["rows"]] == ["sm-x-001", "sm-x-002"]
 
 
+async def test_collect_resolves_the_run_from_either_id_and_always_stores_the_engines(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """The portal only ever holds ``pubsub-<messageId>``; we mint something else.
+
+    This is the bug that kept the loop open end to end. Reconcile can pass
+    nothing but the engine's id, collect read ``state/runs/<our uuid>.json``,
+    and the honest-looking answer "the run wrote no state file" came back for
+    every run in production -- including the ones that had written one.
+
+    Both spellings must land on the same record, and what is stored must be the
+    engine's id, because that is the id the state files, the deliverables and
+    the portal all agree on.
+    """
+
+    agent = await _agent(api, "x-agent")
+    dispatched = await api.post(f"/agents/{agent['id']}/jobs", json={"client_slug": SLUG})
+    middleware_run_id = dispatched.json()["run"]["id"]
+    engine_run_id = f"pubsub-{dispatched.json()['pubsub_message_id']}"
+    assert middleware_run_id != engine_run_id
+
+    fake_workspace.objects[f"clients/{SLUG}/state/runs/{engine_run_id}.json"] = json.dumps(
+        _record(engine_run_id)
+    )
+
+    # What reconcile actually sends.
+    from_engine = (await api.post(f"/runs/{engine_run_id}/collect")).json()
+    assert from_engine["collected"] is True, from_engine
+    assert from_engine["runId"] == engine_run_id
+    assert from_engine["recordChanged"] is True
+
+    # And our own id resolves to the same run -- idempotently, not as a second one.
+    from_ours = (await api.post(f"/runs/{middleware_run_id}/collect")).json()
+    assert from_ours["collected"] is True, from_ours
+    assert from_ours["runId"] == engine_run_id
+    assert from_ours["recordChanged"] is False
+
+    rows = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"]
+    assert len(rows) == 1
+    assert rows[0]["runId"] == engine_run_id
+
+
 # --- Feedback (B2) --------------------------------------------------------------
 
 
@@ -583,9 +638,7 @@ async def test_feedback_moves_the_subject_row_and_reaches_the_next_projection(
     api: AsyncClient, fake_workspace: FakeWorkspaceStore, config_database: ConfigDatabase
 ) -> None:
     agent = await _agent(api, "x-agent")
-    run_id = (await api.post(f"/agents/{agent['id']}/jobs", json={"client_slug": SLUG})).json()[
-        "run"
-    ]["id"]
+    run_id = await _dispatch(api, agent)
     fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
     await api.post(f"/runs/{run_id}/collect")
 

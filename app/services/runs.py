@@ -151,6 +151,49 @@ class RunService:
             }
         )
 
+    async def find_by_pubsub_message_id(self, message_id: str) -> dict[str, Any] | None:
+        """The run this service published under ``message_id``, or ``None``.
+
+        THE TWO RUN IDS ARE NOT THE SAME ID, and this is the bridge between
+        them. A run here is keyed on an id this service mints (a uuid, or one
+        the portal supplied); agent-engine keys everything it writes -- the
+        workspace state files included -- on ``pubsub-<messageId>``, derived
+        from Pub/Sub's own id for the message and deliberately so, because a
+        redelivery of the same unacked message reuses that id and therefore
+        cannot double-run a job.
+
+        Nothing downstream in the portal ever holds the id minted here: it is
+        returned by dispatch and dropped. So the collector, which must find
+        ``state/runs/<engine runId>.json``, has to be able to start from the
+        engine's id and come back to the run -- which is what this does.
+
+        Firestore needs a single-field index on ``pubsub_message_id``; it gets
+        one automatically.
+        """
+
+        if not message_id:
+            return None
+        query = (
+            self._db.collection(RUNS)
+            .where(filter=FieldFilter("pubsub_message_id", "==", message_id))
+            .limit(2)
+        )
+        found = [snapshot_to_dict(snapshot) async for snapshot in query.stream()]
+        if not found:
+            return None
+        if len(found) > 1:
+            # Two runs claiming one message id means something republished a
+            # message under a second run document. Say so rather than picking
+            # one silently -- the collector would attribute the run's learning
+            # to whichever happened to come back first.
+            logger.warning(
+                "runs: %d runs share pubsub_message_id %r (%s); using the first",
+                len(found),
+                message_id,
+                ", ".join(str(run.get("id")) for run in found),
+            )
+        return found[0]
+
     async def list_for_client(
         self,
         client_slug: str,

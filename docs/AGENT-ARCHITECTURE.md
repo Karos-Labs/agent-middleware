@@ -36,6 +36,22 @@ that behaves exactly as it did before the loop existed.
 Nothing in between. There is no third moment, and an agent that wants one is asking for the
 engine to read a database.
 
+### 1.1 `run_id` is two ids, and collect accepts both
+
+This service mints a run id (a uuid, or one the portal supplied) and keys `agent_runs` on it.
+agent-engine derives its OWN from Pub/Sub's message id — `pubsub-<messageId>`, see its
+`queue-consumer.ts` — and that is the id in every path it writes, `state/runs/<runId>.json`
+included. The portal never holds ours: dispatch returns it and the portal drops it.
+
+So collect read `state/runs/<our uuid>.json`, found nothing, every time, for every run, and
+answered `collected: false — the run wrote no state file` about runs that had written one.
+`LearningService._resolve_run` bridges the two: ours resolves directly, `pubsub-…` resolves
+through `RunService.find_by_pubsub_message_id`. **What is stored is always the engine's**,
+because it is the id the state files, the deliverables and the portal all agree on.
+
+A fixture that writes the state file under our id is a fixture describing a run that cannot
+occur. That is exactly how this went unnoticed.
+
 ---
 
 ## 2. The stores
