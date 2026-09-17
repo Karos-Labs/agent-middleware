@@ -380,6 +380,46 @@ class LearningService:
 
     # --- Collection (SCRUM-461, after the run) ------------------------------
 
+    async def _resolve_run(self, run_id: str) -> tuple[dict[str, Any], str]:
+        """Find the run and the id agent-engine wrote its state files under.
+
+        TWO IDS NAME ONE RUN. This service mints a run id (a uuid, or one the
+        portal supplied) and keys ``agent_runs`` on it. agent-engine derives
+        its own from Pub/Sub's message id -- ``pubsub-<messageId>``, see its
+        ``queue-consumer.ts`` -- and that is the id in every path it writes,
+        ``state/runs/<runId>.json`` included.
+
+        The portal only ever holds the engine's. It keys ``agentEngineRuns`` on
+        it and drops the one dispatch returned, so reconcile can call collect
+        with nothing else. Reading the record at ``state/runs/<our uuid>.json``
+        therefore found nothing, every time, for every run -- a collector that
+        answered "the run wrote no state file" about runs that had written one.
+
+        Both spellings resolve here: an id of ours by direct lookup, an
+        ``pubsub-`` id by its message id. The returned pair is (the run
+        document, the id the engine used).
+        """
+
+        try:
+            run = await self._runs.get(run_id)
+        except ResourceNotFoundError:
+            run = {}
+
+        if run:
+            message_id = run.get("pubsub_message_id")
+            # A run of ours that was never published has no engine-side id and
+            # no state file either; falling back to `run_id` keeps the "wrote
+            # no state" answer below rather than raising here.
+            engine_run_id = f"pubsub-{message_id}" if isinstance(message_id, str) and message_id else run_id
+            return run, engine_run_id
+
+        if run_id.startswith("pubsub-"):
+            found = await self._runs.find_by_pubsub_message_id(run_id[len("pubsub-") :])
+            if found is not None:
+                return found, run_id
+
+        return {}, run_id
+
     async def collect(
         self, run_id: str, *, collected_by: str = "portal-reconcile"
     ) -> CollectResult:
@@ -388,23 +428,25 @@ class LearningService:
         Idempotent on ``run_id``: the record is upserted by content hash, the
         subject row on its natural key, and the platform state whole. Calling
         this on every reconcile is the intended use.
+
+        ``run_id`` may be either this service's run id or agent-engine's
+        ``pubsub-<messageId>``; see ``_resolve_run``. What is stored, and what
+        a later call is idempotent on, is always the engine's -- it is the one
+        the state files, the deliverables and the portal all agree on.
         """
 
         if self._workspace is None:
             return CollectResult(run_id, False, "GCS_ARTIFACTS_BUCKET is not configured")
 
-        try:
-            run = await self._runs.get(run_id)
-        except ResourceNotFoundError:
-            run = {}
+        run, engine_run_id = await self._resolve_run(run_id)
         slug = run.get("client_slug")
 
         record: dict[str, Any] | None = None
         if isinstance(slug, str):
-            record = self._read_json(run_record_path(slug, run_id))
+            record = self._read_json(run_record_path(slug, engine_run_id))
         if record is None:
             return CollectResult(
-                run_id,
+                engine_run_id,
                 False,
                 (
                     f"run {run_id!r} is not registered here"
@@ -415,6 +457,7 @@ class LearningService:
                 client_slug=slug if isinstance(slug, str) else None,
             )
         assert isinstance(slug, str)
+        run_id = engine_run_id
 
         # The record names both (C7 §3.1); the run document names neither
         # directly (its agent is a Firestore id), so the record is the source.
