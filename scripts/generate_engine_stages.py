@@ -171,9 +171,19 @@ GUARDRAIL_STEPS = [("guardrail-verify-load-topics", "code"), ("guardrail-verify"
 #: Keying off directory names instead was wrong twice over: one package can
 #: hold two products (setup-agents) and one can hold a second, unrelated
 #: workflow (branded-shorts' style-exploration onboarding).
-PRODUCT_CASE = re.compile(
-    r"case\s+\"([a-z0-9-]+)\":\s*\{?\s*(?:.*?)return\s+(create\w+)\(", re.DOTALL
-)
+#:
+#: Two patterns, because the wiring has two shapes. A label may stand alone
+#: over its own ``return``, or several labels may stack over ONE ``return``
+#: (``case "tiktok-editing-agent": case "branded-shorts-agent": return
+#: createBrandedShortsAgentWorkflow(deps)``) -- D08 gave two existing
+#: workflows three more product names this way. A single non-greedy regex
+#: swallowed the second label of a stack into the first match and never saw
+#: it again, so ``branded-shorts-agent`` silently dropped out of the generated
+#: file the day the stack appeared. The labels are found one by one and each
+#: is paired with the nearest ``return create…(`` after it, which is what the
+#: switch itself does.
+CASE_LABEL = re.compile(r"case\s+\"([a-z0-9-]+)\":")
+FACTORY_RETURN = re.compile(r"return\s+(create\w+)\(")
 
 WIRING_FILE = ("apps", "agent-server", "src", "wiring", "workflows.ts")
 
@@ -411,7 +421,13 @@ def product_factories(engine_root: Path) -> dict[str, str]:
     """Product id -> the workflow factory the engine dispatches it to."""
     text = (engine_root.joinpath(*WIRING_FILE)).read_text(encoding="utf-8")
     body = text[text.index("switch (productId)") :] if "switch (productId)" in text else text
-    return {product: factory for product, factory in PRODUCT_CASE.findall(body)}
+    factories: dict[str, str] = {}
+    for label in CASE_LABEL.finditer(body):
+        hit = FACTORY_RETURN.search(body, label.end())
+        if hit is None:
+            continue
+        factories[label.group(1)] = hit.group(1)
+    return factories
 
 
 def factory_source(engine_root: Path, factory: str) -> Path | None:
