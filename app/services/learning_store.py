@@ -17,6 +17,7 @@ from typing import Any
 import asyncpg
 
 from app.db.postgres import ConfigDatabase
+from app.services.voice_lessons import derive_voice_notes, likes_from_posts
 
 logger = logging.getLogger(__name__)
 
@@ -385,11 +386,26 @@ class LearningStore:
     ) -> dict[str, Any]:
         """Rebuild the derived half from the log and the collected records.
 
-        Voice notes come from two places and nowhere else (Craft 11 §3): the
-        review-cycle notes a run recorded (``voiceNotes`` on its C7 record --
-        an editor asked for a change and the draft was revised) and ``note``
-        actions in the feedback log. A like is recorded as a like; it never
-        becomes a voice note on its own.
+        Voice notes come from four places now (B2, SCRUM-494). Two are STATED --
+        the review-cycle notes a run recorded (``voiceNotes`` on its C7 record)
+        and ``note`` actions in the feedback log -- and two are COUNTED, which
+        is what this ticket was missing:
+
+        * words the client removes from draft after draft and never publishes
+        * a consistent direction of length change across several edits
+        * the same reason given for skipping several drafts
+
+        The counted half lives in ``voice_lessons.py``, as pure functions over
+        the texts, with its own reasoning about why none of it is a model call.
+        The stated half is unchanged and wins a tie: a lesson somebody wrote in
+        words is not replaced by one derived from a diff that says the same
+        thing.
+
+        A like is still never a voice note. It is now a LIKE: ``likes`` has been
+        a column with no writer since this table was created, and what fills it
+        is a ``posted`` action -- the client putting our sentences out under
+        their own name without changing a word, which is the strongest
+        endorsement the log actually contains.
         """
 
         note_rows = await connection.fetch(
@@ -433,22 +449,73 @@ class LearningStore:
         for row in note_rows:
             add(row["reason"], row["run_id"])
 
+        # The counted half. Each query is bounded and ordered newest-first: a
+        # client with three years of history derives from their recent voice,
+        # not from how they wrote when they signed up.
+        edit_rows = await connection.fetch(
+            """
+            select original_text, final_text from client_feedback_log
+             where client_slug = $1 and action = 'posted_with_edits'
+               and original_text is not null and final_text is not null
+             order by at desc limit 50
+            """,
+            client_slug,
+        )
+        skip_rows = await connection.fetch(
+            """
+            select reason from client_feedback_log
+             where client_slug = $1 and action = 'skipped' and reason is not null
+             order by at desc limit 50
+            """,
+            client_slug,
+        )
+        # `posted`, not `posted_with_edits`: the endorsement is that nothing was
+        # changed. Joined to the subject row so a like carries the post it refers
+        # to rather than a run id nobody can read, and LEFT joined so a like
+        # survives a subject row that was never written (a pre-C7 run).
+        like_rows = await connection.fetch(
+            """
+            select f.run_id, f.at, s.subject
+              from client_feedback_log f
+              left join subject_rows s
+                on s.run_id = f.run_id and s.platform = f.platform
+             where f.client_slug = $1 and f.action = 'posted' and f.run_id is not null
+             order by f.at desc limit 20
+            """,
+            client_slug,
+        )
+
+        derived_voice = derive_voice_notes(
+            carried=voice,
+            edit_pairs=[(r["original_text"], r["final_text"]) for r in edit_rows],
+            skip_reasons=[r["reason"] for r in skip_rows],
+        )
+        likes = likes_from_posts(
+            [
+                {"runId": r["run_id"], "subject": r["subject"], "at": _iso(r["at"])}
+                for r in like_rows
+            ]
+        )
+
         await connection.execute(
             """
-            insert into client_preferences (client_slug, voice_notes, derived_at,
+            insert into client_preferences (client_slug, voice_notes, likes, derived_at,
                                             derived_from_count)
-            values ($1, $2::jsonb, now(), $3)
+            values ($1, $2::jsonb, $3::jsonb, now(), $4)
             on conflict (client_slug) do update
                set voice_notes = excluded.voice_notes,
+                   likes = excluded.likes,
                    derived_at = now(),
                    derived_from_count = excluded.derived_from_count
              -- Same derivation, same row: `derivedAt` moves only when the result does.
              where client_preferences.voice_notes is distinct from excluded.voice_notes
+                or client_preferences.likes is distinct from excluded.likes
                 or client_preferences.derived_from_count
                    is distinct from excluded.derived_from_count
             """,
             client_slug,
-            voice[:40],
+            derived_voice,
+            likes,
             int(count or 0),
         )
         row = await connection.fetchrow(

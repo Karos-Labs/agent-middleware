@@ -172,6 +172,8 @@ async def test_a_client_nobody_has_taught_projects_only_the_two_empty_windows(
         "craft": "skipped",
         "what-works": "skipped",
         "preferences": "skipped",
+        # N4 is derived from the map, so no map means no plan -- not an empty one.
+        "sequence": "skipped",
     }
 
     window = _read(fake_workspace, f"{LEARNING}/x/subject-window.json")
@@ -754,3 +756,167 @@ async def test_without_a_bucket_the_tables_work_and_projection_says_so(
             projected = await api.post(f"/clients/{SLUG}/learning/x/project")
             assert projected.status_code == 503
             assert "GCS_ARTIFACTS_BUCKET" in projected.json()["detail"]
+
+
+async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """B2 (SCRUM-494): the counted half of the preferences.
+
+    ``client_preferences``' own comment has always said voice notes are derived
+    "from edits", and the derivation never read one — it carried what a run or a
+    person had already said in words. ``likes`` had no writer at all.
+
+    This is the whole claim end to end: three edits that take the same word out,
+    two skips with the same reason, and one draft posted untouched, through the
+    real endpoint and the real transaction, landing in the file the next run
+    reads.
+    """
+
+    agent = await _agent(api, "x-agent")
+    run_id = await _dispatch(api, agent)
+    fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
+    await api.post(f"/runs/{run_id}/collect")
+
+    # Three edits, each taking "leverage" out and none putting it back.
+    for original, final in (
+        ("We leverage our platform to unlock growth", "We help you grow"),
+        ("Leverage the data you already have to drive outcomes", "Use the data you have"),
+        ("A quick way to leverage the quarter and build momentum", "One way to use the quarter"),
+    ):
+        edited = await api.post(
+            f"/clients/{SLUG}/learning/feedback",
+            json={
+                "platform": "x",
+                "action": "posted_with_edits",
+                "originalText": original,
+                "finalText": final,
+            },
+        )
+        assert edited.status_code == 201, edited.text
+
+    # The same reason twice: tone, not a topic — so it must NOT reach never_topics.
+    for _ in range(2):
+        await api.post(
+            f"/clients/{SLUG}/learning/feedback",
+            json={"platform": "x", "action": "skipped", "reason": "too salesy"},
+        )
+
+    # And one the client published without touching, which is the only
+    # endorsement the log actually contains.
+    posted = await api.post(
+        f"/clients/{SLUG}/learning/feedback",
+        json={"platform": "x", "action": "posted", "runId": run_id},
+    )
+    assert posted.status_code == 201, posted.text
+
+    prefs = (await api.get(f"/clients/{SLUG}/learning/preferences")).json()
+    lessons = [note["lesson"] for note in prefs["voiceNotes"]]
+
+    assert 'Takes "leverage" out: removed in 3 edits and never published once.' in lessons
+    assert any(lesson.startswith("Rewrites shorter") for lesson in lessons)
+    assert 'Skipped 2 drafts for the same reason: "too salesy".' in lessons
+    # The lesson somebody STATED is kept beside the counted ones, not replaced.
+    assert "cut the second adjective" in lessons
+    # A skip reason is tone. Banning the topic is a person's decision (the
+    # table's own design), and this derivation must never make it for them.
+    assert prefs["neverTopics"] == []
+
+    # The like names the POST rather than a run id nobody can read, and says why
+    # it is there — nobody clicked a heart. The subject is read back off the
+    # subject row rather than restated here, because the join is the thing under
+    # test: a like that lost it would still look right against a literal.
+    subject = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"][0]["subject"]
+    assert prefs["likes"] == [
+        {
+            "why": "posted as written",
+            "subject": subject,
+            "runId": run_id,
+            "at": prefs["likes"][0]["at"],
+        }
+    ]
+
+    # THE ORDER IS THE POINT, and it is the part a reader will get wrong. The
+    # engine takes the LAST eight (`learning-context.ts`'s `slice(-8)`), so the
+    # best-evidenced lesson has to be at the END of the list.
+    evidence = [note.get("evidence", 1) for note in prefs["voiceNotes"]]
+    assert evidence == sorted(evidence)
+
+    # And it reaches the file the next run actually reads.
+    await api.post(f"/clients/{SLUG}/learning/x/project")
+    preferences_file = _read(fake_workspace, f"{LEARNING}/preferences.json")
+    assert preferences_file is not None
+    projected = [note["lesson"] for note in preferences_file["data"]["voiceNotes"]]
+    assert 'Takes "leverage" out: removed in 3 edits and never published once.' in projected
+# --- N4: the sequence (SCRUM-487) ----------------------------------------------------
+
+
+async def test_the_sequence_is_planned_from_the_map_and_the_history_and_reaches_a_file(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """The plan, end to end, against the tables it is actually derived from.
+
+    The unit cases prove the rules. What this proves is the join: that the map
+    rows the middleware stores and the subject rows a run collected are read in
+    the right direction, through the same settings window, and that the file the
+    engine will read carries the plan and not an empty shape.
+    """
+
+    written = await api.put(
+        f"/clients/{SLUG}/learning/x/strategy-map",
+        json={
+            "source": "first-run",
+            "rows": [
+                {"id": "sm-1", "stage": "attention", "idea": "Why intake queues break"},
+                {"id": "sm-2", "stage": "attention", "idea": "The month-two cliff"},
+                {"id": "sm-3", "stage": "expertise", "idea": "The one metric ops leads miss"},
+                {"id": "sm-4", "stage": "decide", "idea": "What a rollout week looks like"},
+            ],
+            "replace": True,
+        },
+    )
+    assert written.status_code == 200, written.text
+
+    plan = (await api.get(f"/clients/{SLUG}/learning/x/sequence?slots=4")).json()
+    assert [slot["stage"] for slot in plan["slots"]] == [
+        "attention",
+        "expertise",
+        "decide",
+        "attention",
+    ], "the mix owed (D32: 3/2/1 per six), never the same stage twice in a row"
+    assert plan["unfilled"] == 0
+    assert plan["slots"][0]["subject"] == "Why intake queues break"
+    assert plan["slots"][0]["goal"] == "earn attention"
+    assert plan["slots"][0]["rowId"] == "sm-1"
+    # No what-works ingestion exists, and the plan says so rather than implying
+    # an ordering it does not have (02 §3.4).
+    assert any("what-works" in note for note in plan["notes"])
+
+    # A post that has actually gone out changes the answer: the plan is read
+    # against the subject window, not against the map alone.
+    agent = await _agent(api, "x-agent")
+    run_id = await _dispatch(api, agent)
+    fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
+    collected = await api.post(f"/runs/{run_id}/collect")
+    assert collected.status_code == 200, collected.text
+    assert collected.json()["collected"] is True
+
+    after = (await api.get(f"/clients/{SLUG}/learning/x/sequence?slots=1")).json()
+    assert after["slots"][0]["stage"] != "attention", (
+        "an attention post that just went out cannot be followed by another one"
+    )
+
+    projected = await api.post(f"/clients/{SLUG}/learning/x/project")
+    outcomes = {f["kind"]: f["outcome"] for f in projected.json()["files"]}
+    assert outcomes["sequence"] in ("created", "updated", "unchanged")
+    sequence_file = _read(fake_workspace, f"{LEARNING}/x/sequence.json")
+    assert sequence_file is not None
+    assert sequence_file["platform"] == "x"
+    assert sequence_file["source"]["rows"] == len(sequence_file["data"]["slots"])
+    assert sequence_file["data"]["mix"] == {"attention": 3, "expertise": 2, "decide": 1}
+
+
+async def test_a_client_with_no_map_gets_null_rather_than_empty_slots(api: AsyncClient) -> None:
+    # Every client between setup and their first run is here. Empty slots would
+    # read as "we have nothing to say"; null says nobody has built a map yet.
+    assert (await api.get(f"/clients/{SLUG}/learning/reddit/sequence")).json() is None
