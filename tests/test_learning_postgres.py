@@ -784,7 +784,12 @@ async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
     ):
         edited = await api.post(
             f"/clients/{SLUG}/learning/feedback",
-            json={"platform": "x", "action": "posted_with_edits", "originalText": original, "finalText": final},
+            json={
+                "platform": "x",
+                "action": "posted_with_edits",
+                "originalText": original,
+                "finalText": final,
+            },
         )
         assert edited.status_code == 201, edited.text
 
@@ -821,7 +826,12 @@ async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
     # test: a like that lost it would still look right against a literal.
     subject = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"][0]["subject"]
     assert prefs["likes"] == [
-        {"why": "posted as written", "subject": subject, "runId": run_id, "at": prefs["likes"][0]["at"]}
+        {
+            "why": "posted as written",
+            "subject": subject,
+            "runId": run_id,
+            "at": prefs["likes"][0]["at"],
+        }
     ]
 
     # THE ORDER IS THE POINT, and it is the part a reader will get wrong. The

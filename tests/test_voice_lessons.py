@@ -21,7 +21,6 @@ from app.services.voice_lessons import (
     length_lesson,
     likes_from_posts,
     order_by_evidence,
-    removed_words,
     skip_lessons,
     word_lessons,
     words,
@@ -131,19 +130,30 @@ class TestSkips:
 
 class TestLikes:
     def test_a_posted_row_becomes_a_like_that_names_the_post(self) -> None:
-        likes = likes_from_posts([{"runId": "run-1", "subject": "the month-two cliff", "at": "2026-09-17T10:00:00Z"}])
+        likes = likes_from_posts(
+            [{"runId": "run-1", "subject": "the month-two cliff", "at": "2026-09-17T10:00:00Z"}]
+        )
         assert likes == [
-            {"why": "posted as written", "subject": "the month-two cliff", "runId": "run-1", "at": "2026-09-17T10:00:00Z"}
+            {
+                "why": "posted as written",
+                "subject": "the month-two cliff",
+                "runId": "run-1",
+                "at": "2026-09-17T10:00:00Z",
+            }
         ]
 
     def test_says_why_on_every_row_so_nobody_reads_it_as_a_thumbs_up(self) -> None:
         # Nobody clicked a heart. A future reader of this column should not be
         # able to think they did.
-        assert all(like["why"] == "posted as written" for like in likes_from_posts([{"runId": "r"}]))
+        assert all(
+            like["why"] == "posted as written" for like in likes_from_posts([{"runId": "r"}])
+        )
 
     def test_survives_a_run_with_no_subject_row(self) -> None:
         # A pre-C7 run never wrote one, and the like is still true.
-        assert likes_from_posts([{"runId": "run-9"}]) == [{"why": "posted as written", "runId": "run-9"}]
+        assert likes_from_posts([{"runId": "run-9"}]) == [
+            {"why": "posted as written", "runId": "run-9"}
+        ]
 
     def test_drops_a_row_that_names_nothing(self) -> None:
         assert likes_from_posts([{"at": "2026-09-17T10:00:00Z"}]) == []
@@ -155,12 +165,18 @@ class TestOrdering:
         # `.slice(-8)` (learning-context.ts), so the END of the list is what
         # reaches a draft. Sorting the obvious way would drop the best-evidenced
         # lesson the moment a client accumulates a ninth.
-        ordered = order_by_evidence([{"lesson": "weak", "evidence": 1}, {"lesson": "strong", "evidence": 9}])
+        ordered = order_by_evidence(
+            [{"lesson": "weak", "evidence": 1}, {"lesson": "strong", "evidence": 9}]
+        )
         assert [lesson["lesson"] for lesson in ordered] == ["weak", "strong"]
 
     def test_a_stated_lesson_with_no_count_sorts_as_one(self) -> None:
         ordered = order_by_evidence(
-            [{"lesson": "counted", "evidence": 3}, {"lesson": "stated"}, {"lesson": "thin", "evidence": 1}]
+            [
+                {"lesson": "counted", "evidence": 3},
+                {"lesson": "stated"},
+                {"lesson": "thin", "evidence": 1},
+            ]
         )
         assert ordered[-1]["lesson"] == "counted"
 
