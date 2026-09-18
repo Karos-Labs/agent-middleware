@@ -754,3 +754,85 @@ async def test_without_a_bucket_the_tables_work_and_projection_says_so(
             projected = await api.post(f"/clients/{SLUG}/learning/x/project")
             assert projected.status_code == 503
             assert "GCS_ARTIFACTS_BUCKET" in projected.json()["detail"]
+
+
+async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """B2 (SCRUM-494): the counted half of the preferences.
+
+    ``client_preferences``' own comment has always said voice notes are derived
+    "from edits", and the derivation never read one — it carried what a run or a
+    person had already said in words. ``likes`` had no writer at all.
+
+    This is the whole claim end to end: three edits that take the same word out,
+    two skips with the same reason, and one draft posted untouched, through the
+    real endpoint and the real transaction, landing in the file the next run
+    reads.
+    """
+
+    agent = await _agent(api, "x-agent")
+    run_id = await _dispatch(api, agent)
+    fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
+    await api.post(f"/runs/{run_id}/collect")
+
+    # Three edits, each taking "leverage" out and none putting it back.
+    for original, final in (
+        ("We leverage our platform to unlock growth", "We help you grow"),
+        ("Leverage the data you already have to drive outcomes", "Use the data you have"),
+        ("A quick way to leverage the quarter and build momentum", "One way to use the quarter"),
+    ):
+        edited = await api.post(
+            f"/clients/{SLUG}/learning/feedback",
+            json={"platform": "x", "action": "posted_with_edits", "originalText": original, "finalText": final},
+        )
+        assert edited.status_code == 201, edited.text
+
+    # The same reason twice: tone, not a topic — so it must NOT reach never_topics.
+    for _ in range(2):
+        await api.post(
+            f"/clients/{SLUG}/learning/feedback",
+            json={"platform": "x", "action": "skipped", "reason": "too salesy"},
+        )
+
+    # And one the client published without touching, which is the only
+    # endorsement the log actually contains.
+    posted = await api.post(
+        f"/clients/{SLUG}/learning/feedback",
+        json={"platform": "x", "action": "posted", "runId": run_id},
+    )
+    assert posted.status_code == 201, posted.text
+
+    prefs = (await api.get(f"/clients/{SLUG}/learning/preferences")).json()
+    lessons = [note["lesson"] for note in prefs["voiceNotes"]]
+
+    assert 'Takes "leverage" out: removed in 3 edits and never published once.' in lessons
+    assert any(lesson.startswith("Rewrites shorter") for lesson in lessons)
+    assert 'Skipped 2 drafts for the same reason: "too salesy".' in lessons
+    # The lesson somebody STATED is kept beside the counted ones, not replaced.
+    assert "cut the second adjective" in lessons
+    # A skip reason is tone. Banning the topic is a person's decision (the
+    # table's own design), and this derivation must never make it for them.
+    assert prefs["neverTopics"] == []
+
+    # The like names the POST rather than a run id nobody can read, and says why
+    # it is there — nobody clicked a heart. The subject is read back off the
+    # subject row rather than restated here, because the join is the thing under
+    # test: a like that lost it would still look right against a literal.
+    subject = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"][0]["subject"]
+    assert prefs["likes"] == [
+        {"why": "posted as written", "subject": subject, "runId": run_id, "at": prefs["likes"][0]["at"]}
+    ]
+
+    # THE ORDER IS THE POINT, and it is the part a reader will get wrong. The
+    # engine takes the LAST eight (`learning-context.ts`'s `slice(-8)`), so the
+    # best-evidenced lesson has to be at the END of the list.
+    evidence = [note.get("evidence", 1) for note in prefs["voiceNotes"]]
+    assert evidence == sorted(evidence)
+
+    # And it reaches the file the next run actually reads.
+    await api.post(f"/clients/{SLUG}/learning/x/project")
+    preferences_file = _read(fake_workspace, f"{LEARNING}/preferences.json")
+    assert preferences_file is not None
+    projected = [note["lesson"] for note in preferences_file["data"]["voiceNotes"]]
+    assert 'Takes "leverage" out: removed in 3 edits and never published once.' in projected
