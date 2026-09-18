@@ -848,6 +848,8 @@ async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
     assert preferences_file is not None
     projected = [note["lesson"] for note in preferences_file["data"]["voiceNotes"]]
     assert 'Takes "leverage" out: removed in 3 edits and never published once.' in projected
+
+
 # --- N4: the sequence (SCRUM-487) ----------------------------------------------------
 
 
@@ -920,3 +922,119 @@ async def test_a_client_with_no_map_gets_null_rather_than_empty_slots(api: Async
     # Every client between setup and their first run is here. Empty slots would
     # read as "we have nothing to say"; null says nobody has built a map yet.
     assert (await api.get(f"/clients/{SLUG}/learning/reddit/sequence")).json() is None
+
+
+# --- B1: what a published post may never stop being (SCRUM-462) ----------------------
+
+
+async def _one_subject_row(api: AsyncClient, fake_workspace: FakeWorkspaceStore) -> dict[str, Any]:
+    """Collect one real run so there is a subject row to push against."""
+
+    agent = await _agent(api, "x-agent")
+    run_id = await _dispatch(api, agent)
+    fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
+    collected = await api.post(f"/runs/{run_id}/collect")
+    assert collected.status_code == 200, collected.text
+    rows = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"]
+    return next(r for r in rows if r["runId"] == run_id)
+
+
+async def test_a_posted_row_cannot_be_moved_back_or_deleted(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore, config_database: ConfigDatabase
+) -> None:
+    """The one status that is a fact about the world rather than an intention.
+
+    Every other status says what somebody MEANT to do, and an intention may be
+    revised: approving a draft on Monday and asking for a change on Tuesday is
+    ordinary. ``posted`` says the words are out under the client's name where
+    other people have read them, and a row that moves off it retroactively
+    unsays a post the audience saw -- which also hands the anti-repetition
+    window permission to write it again.
+    """
+
+    row = await _one_subject_row(api, fake_workspace)
+    posted = await api.post(
+        f"/clients/{SLUG}/learning/feedback",
+        json={"platform": "x", "action": "posted", "runId": row["runId"]},
+    )
+    assert posted.status_code == 201, posted.text
+
+    for target in ("drafted", "skipped", "change_requested"):
+        with pytest.raises(asyncpg.PostgresError):
+            await config_database.execute(
+                "update config.subject_rows set status = $2 where id = $1::uuid", row["id"], target
+            )
+
+    with pytest.raises(asyncpg.PostgresError):
+        await config_database.execute(
+            "update config.subject_rows set posted_at = null where id = $1::uuid", row["id"]
+        )
+
+    with pytest.raises(asyncpg.PostgresError):
+        await config_database.execute(
+            "delete from config.subject_rows where id = $1::uuid", row["id"]
+        )
+
+    # Still posted, and still says when.
+    after = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"]
+    mine = next(r for r in after if r["id"] == row["id"])
+    assert mine["status"] == "posted" and mine["postedAt"]
+
+
+async def test_the_intentions_before_publication_stay_revisable(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore, config_database: ConfigDatabase
+) -> None:
+    """The case a rank-based guard would have broken, which is why there isn't one.
+
+    A client approves a draft and then asks for a change; later they skip it and
+    later still they post it after all. Every one of those is a person changing
+    their mind before anything reached an audience, and a guard that refused
+    them would leave the table describing a decision nobody made.
+    """
+
+    row = await _one_subject_row(api, fake_workspace)
+    for target in ("approved", "change_requested", "skipped", "posted"):
+        await config_database.execute(
+            "update config.subject_rows set status = $2 where id = $1::uuid", row["id"], target
+        )
+    rows = (await api.get(f"/clients/{SLUG}/learning/x/subjects")).json()["rows"]
+    assert next(r for r in rows if r["id"] == row["id"])["status"] == "posted"
+
+
+async def test_a_row_cannot_be_repointed_at_a_different_run_or_subject(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore, config_database: ConfigDatabase
+) -> None:
+    """Worse than a delete, because nothing afterwards looks wrong.
+
+    Those four columns are what every join in the loop is keyed on: the feedback
+    route finds the row by `runId`, the window compares `subject`, and the
+    projection is per client and platform.
+    """
+
+    row = await _one_subject_row(api, fake_workspace)
+    for column, value in (
+        ("run_id", "some-other-run"),
+        ("subject", "a completely different subject"),
+        ("platform", "linkedin"),
+        ("client_slug", "someone-else"),
+    ):
+        with pytest.raises(asyncpg.PostgresError):
+            await config_database.execute(
+                f"update config.subject_rows set {column} = $2 where id = $1::uuid",
+                row["id"],
+                value,
+            )
+
+
+async def test_marking_an_already_posted_row_posted_again_is_still_a_no_op(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """The portal's publish path retries, and a retry must not hit the guard."""
+
+    row = await _one_subject_row(api, fake_workspace)
+    for _ in range(2):
+        response = await api.post(
+            f"/clients/{SLUG}/learning/feedback",
+            json={"platform": "x", "action": "posted", "runId": row["runId"]},
+        )
+        assert response.status_code == 201, response.text
