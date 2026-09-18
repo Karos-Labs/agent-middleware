@@ -40,6 +40,7 @@ All paths are under `gs://<bucket>/clients/<slug>/` (`WorkspaceStore` segments i
 | `context/learning/<platform>/what-works.json` | `[…, "what-works"]` | middleware, from the what-works summary (absent until ingestion exists) | §2.5 |
 | `context/learning/<platform>/strategy-map.json` | `[…, "strategy-map"]` | middleware, from `config.strategy_map`; first built by the engine (C1 item, SCRUM-464) | §2.6 |
 | `context/learning/<platform>/craft.json` | `[…, "craft"]` | middleware, from the craft store (L1 + L2 + L3 merged) | §2.7 |
+| `context/learning/<platform>/sequence.json` | `[…, "sequence"]` | middleware, DERIVED from §2.6 and §2.2 (N4, SCRUM-487) | §2.8 |
 | run input `slotStage` | Pub/Sub message, `RichRunInputSchema` | portal sequencing, for calendar runs only | `attention` \| `expertise` \| `decide` |
 
 `<platform>` is the engine's platform key: `x`, `linkedin`, `reddit`, `instagram`, `tiktok`.
@@ -50,7 +51,7 @@ All paths are under `gs://<bucket>/clients/<slug>/` (`WorkspaceStore` segments i
 {
   "kind": "platform-state",            // = the file's own name
   "platform": "x",                     // absent on preferences.json
-  "data": { … },                       // the payload, §2.1–§2.7
+  "data": { … },                       // the payload, §2.1–§2.8
   "source": {
     "projectedAt": "2026-09-16T09:00:00Z",
     "projectedBy": "middleware-dispatch | middleware-backfill | engine-run",
@@ -157,6 +158,40 @@ will collect.
 Precedence is resolved by the projector, not by the run: L3 beats L2 beats L1 defaults;
 **L1 hard rules always win** and can never appear as a `loser`. The run receives rules as
 instructions (D41), not as a checklist, and reports the ids it applied (§3).
+
+### 2.8 `sequence` — which post goes in each of the next slots, and why (N4)
+
+```jsonc
+{ "platform": "x",
+  "mix": { "attention": 3, "expertise": 2, "decide": 1 },
+  "unfilled": 0,
+  "notes": ["Ranked by the map's own order: the what-works summary does not exist yet (02 §3.4)."],
+  "slots": [{ "slot": 1, "stage": "attention", "subject": "Why intake queues break",
+              "goal": "earn attention", "rowId": "sm-1", "type": "knowledge",
+              "problem": "intake breaks", "source": "strategy-map",
+              "reason": "attention was furthest behind the mix; ranked no performance data, map order" }] }
+```
+
+**Derived, never stored.** Every field comes from the strategy map (§2.6) and the subject
+window (§2.2) read through the rules in the middleware's `sequencing` module, so a run that
+holds all three files can check the plan against what it was planned from. The file is
+absent when the client has no map: an empty plan would read as "nothing to say" rather than
+"nobody has built this client a map yet".
+
+Two fields a reader must not skip. `unfilled` counts the slots the open map could not
+cover, and a run that finds it non-zero is looking at a pool that needs rebuilding before
+the client starts repeating themselves. `notes` says what the plan could NOT take into
+account — today, always, that the what-works summary does not exist (§2.5), so ordering
+inside a stage is the map's own and not a performance ranking.
+
+`stage` and `subject` are the whole instruction. The slot deliberately does **not** name an
+Instagram format or a visual treatment: D17 says those are chosen per post by performance
+and relevance, and choosing one here would be the rotation D17 forbids. TikTok editing has
+no sequence at all (D19: on demand), even though it shares the TikTok platform — and
+therefore this platform's subject history — with the two TikTok products that do.
+
+`source` is `strategy-map` or `client-request`. A client request wins outright: over the
+mix, and over the "never the same stage twice in a row" rule too, and `reason` says so.
 
 ## 3. What a run writes back
 

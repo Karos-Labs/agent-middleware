@@ -172,6 +172,8 @@ async def test_a_client_nobody_has_taught_projects_only_the_two_empty_windows(
         "craft": "skipped",
         "what-works": "skipped",
         "preferences": "skipped",
+        # N4 is derived from the map, so no map means no plan -- not an empty one.
+        "sequence": "skipped",
     }
 
     window = _read(fake_workspace, f"{LEARNING}/x/subject-window.json")
@@ -846,3 +848,75 @@ async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
     assert preferences_file is not None
     projected = [note["lesson"] for note in preferences_file["data"]["voiceNotes"]]
     assert 'Takes "leverage" out: removed in 3 edits and never published once.' in projected
+# --- N4: the sequence (SCRUM-487) ----------------------------------------------------
+
+
+async def test_the_sequence_is_planned_from_the_map_and_the_history_and_reaches_a_file(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """The plan, end to end, against the tables it is actually derived from.
+
+    The unit cases prove the rules. What this proves is the join: that the map
+    rows the middleware stores and the subject rows a run collected are read in
+    the right direction, through the same settings window, and that the file the
+    engine will read carries the plan and not an empty shape.
+    """
+
+    written = await api.put(
+        f"/clients/{SLUG}/learning/x/strategy-map",
+        json={
+            "source": "first-run",
+            "rows": [
+                {"id": "sm-1", "stage": "attention", "idea": "Why intake queues break"},
+                {"id": "sm-2", "stage": "attention", "idea": "The month-two cliff"},
+                {"id": "sm-3", "stage": "expertise", "idea": "The one metric ops leads miss"},
+                {"id": "sm-4", "stage": "decide", "idea": "What a rollout week looks like"},
+            ],
+            "replace": True,
+        },
+    )
+    assert written.status_code == 200, written.text
+
+    plan = (await api.get(f"/clients/{SLUG}/learning/x/sequence?slots=4")).json()
+    assert [slot["stage"] for slot in plan["slots"]] == [
+        "attention",
+        "expertise",
+        "decide",
+        "attention",
+    ], "the mix owed (D32: 3/2/1 per six), never the same stage twice in a row"
+    assert plan["unfilled"] == 0
+    assert plan["slots"][0]["subject"] == "Why intake queues break"
+    assert plan["slots"][0]["goal"] == "earn attention"
+    assert plan["slots"][0]["rowId"] == "sm-1"
+    # No what-works ingestion exists, and the plan says so rather than implying
+    # an ordering it does not have (02 §3.4).
+    assert any("what-works" in note for note in plan["notes"])
+
+    # A post that has actually gone out changes the answer: the plan is read
+    # against the subject window, not against the map alone.
+    agent = await _agent(api, "x-agent")
+    run_id = await _dispatch(api, agent)
+    fake_workspace.objects[f"clients/{SLUG}/state/runs/{run_id}.json"] = json.dumps(_record(run_id))
+    collected = await api.post(f"/runs/{run_id}/collect")
+    assert collected.status_code == 200, collected.text
+    assert collected.json()["collected"] is True
+
+    after = (await api.get(f"/clients/{SLUG}/learning/x/sequence?slots=1")).json()
+    assert after["slots"][0]["stage"] != "attention", (
+        "an attention post that just went out cannot be followed by another one"
+    )
+
+    projected = await api.post(f"/clients/{SLUG}/learning/x/project")
+    outcomes = {f["kind"]: f["outcome"] for f in projected.json()["files"]}
+    assert outcomes["sequence"] in ("created", "updated", "unchanged")
+    sequence_file = _read(fake_workspace, f"{LEARNING}/x/sequence.json")
+    assert sequence_file is not None
+    assert sequence_file["platform"] == "x"
+    assert sequence_file["source"]["rows"] == len(sequence_file["data"]["slots"])
+    assert sequence_file["data"]["mix"] == {"attention": 3, "expertise": 2, "decide": 1}
+
+
+async def test_a_client_with_no_map_gets_null_rather_than_empty_slots(api: AsyncClient) -> None:
+    # Every client between setup and their first run is here. Empty slots would
+    # read as "we have nothing to say"; null says nobody has built a map yet.
+    assert (await api.get(f"/clients/{SLUG}/learning/reddit/sequence")).json() is None

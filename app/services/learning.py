@@ -2,8 +2,9 @@
 
 ``docs/contracts/C7-run-context.md``. Before a dispatch the middleware
 PROJECTS what the platform has learned about a client into the engine's
-workspace -- seven JSON files under ``clients/<slug>/context/learning/`` --
-and after the run it COLLECTS the record the run wrote back
+workspace -- the C7 §2 JSON files under ``clients/<slug>/context/learning/``,
+plus N4's derived ``sequence`` -- and after the run it COLLECTS the record it
+wrote back
 (``state/runs/<runId>.json``, ``state/<platform>/platform-state.json``) into
 the Postgres tables of migration 0007, then projects again so the next run
 sees it.
@@ -36,10 +37,18 @@ from app.services.learning_store import (
     platform_for_product,
 )
 from app.services.runs import RunService
+from app.services.sequencing import plan as plan_sequence
 
 logger = logging.getLogger(__name__)
 
-#: C7 §2, in the order the engine lists them in `readiness`.
+#: C7 §2, in the order the engine lists them in `readiness`, plus N4's
+#: ``sequence`` at the end.
+#:
+#: ``sequence`` is DERIVED, not stored: it is the strategy map and the subject
+#: window read through the rules in ``app.services.sequencing``. It is written
+#: as a file anyway, for the same reason the others are -- the engine reads
+#: files and never Postgres -- and it is written last so a reader who has the
+#: map and the window can check the plan against them.
 PLATFORM_KINDS: tuple[str, ...] = (
     "platform-state",
     "subject-window",
@@ -47,7 +56,14 @@ PLATFORM_KINDS: tuple[str, ...] = (
     "what-works",
     "strategy-map",
     "craft",
+    "sequence",
 )
+
+#: How many slots a projected plan covers. Six is one turn of the default mix
+#: (D32: three attention, two expertise, one decide), so a reader can see the
+#: whole shape of the mix in one file without the plan going so far ahead that
+#: the first review cycle invalidates the tail.
+SEQUENCE_SLOTS = 6
 PREFERENCES_KIND = "preferences"
 
 
@@ -242,7 +258,7 @@ class LearningService:
     # --- The view a run would read (served from Postgres, not GCS) ----------
 
     async def context(self, slug: str, platform: str) -> dict[str, Any]:
-        """The seven payloads as the projector would write them, by kind.
+        """Every payload as the projector would write them, by kind.
 
         The portal's readiness page and a developer checking "what will the
         next run see" both want this without bucket access, so it is served
@@ -251,10 +267,9 @@ class LearningService:
 
         settings = await self._store.settings(slug, platform)
         window = await self._store.subject_window(slug, platform, days=settings["antiRepeatDays"])
-        feedback = await self._store.recent_feedback(
-            slug, platform, limit=settings["feedbackRows"]
-        )
+        feedback = await self._store.recent_feedback(slug, platform, limit=settings["feedbackRows"])
         craft = await self._store.craft_rules(slug, platform, sector=settings["sector"])
+        strategy = await self._store.strategy_map(slug, platform)
         return {
             "platform": platform,
             "settings": settings,
@@ -262,10 +277,45 @@ class LearningService:
             "subject-window": {"windowDays": settings["antiRepeatDays"], "rows": window},
             "feedback": {"rows": feedback},
             "what-works": None,  # absent until ingestion exists (02 §3.4)
-            "strategy-map": await self._store.strategy_map(slug, platform),
+            "strategy-map": strategy,
             "craft": resolve_craft(craft) if craft else None,
             "preferences": await self._store.preferences(slug),
+            "sequence": self.sequence(strategy, window),
         }
+
+    def sequence(
+        self,
+        strategy: dict[str, Any] | None,
+        window: list[dict[str, Any]],
+        *,
+        slots: int = SEQUENCE_SLOTS,
+    ) -> dict[str, Any] | None:
+        """N4: which post goes in each of the next ``slots``, and why.
+
+        Pure, and taking the map and the window it was already given rather than
+        fetching them again: a plan built from a different read of the tables
+        than the ``strategy-map`` and ``subject-window`` files beside it could
+        disagree with them, and a reader would have no way to tell which was
+        right.
+
+        ``None`` when there is no map. A plan with no map behind it would be a
+        list of empty slots, which reads as "we have nothing to say" rather than
+        "nobody has built this client a map yet".
+        """
+
+        if not strategy or not strategy.get("rows"):
+            return None
+        plan = plan_sequence(
+            slots=slots,
+            map_rows=strategy["rows"],
+            recent=window,
+            default_mix=strategy.get("defaultMix"),
+            # Requests, anchors and performance all have somewhere to come from
+            # and no writer yet -- client requests are not a table, news anchors
+            # are not ingested, and what-works is 02 §3.4. Passing nothing is
+            # what says so; each one is a one-line change here when it lands.
+        )
+        return {"platform": strategy.get("platform"), **plan}
 
     # --- Projection (SCRUM-461, before dispatch) ----------------------------
 
@@ -281,6 +331,8 @@ class LearningService:
         * ``platform-state``, ``strategy-map``, ``craft`` and ``preferences``
           are stores, so with no rows there is nothing to say and the file is
           left absent -- the reader lists it under ``readiness.absent``.
+        * ``sequence`` is derived from two of the above, so it is written when
+          and only when there is a map to derive it from.
         * ``what-works`` is never written here: the ingestion that produces
           it does not exist yet (02 §3.4), and an empty file would claim it did.
         """
@@ -314,9 +366,7 @@ class LearningService:
                 result.files.append(FileOutcome(kind, "unchanged", rows=rows))
                 return
             self._workspace.write_text(path, _serialise(envelope))
-            result.files.append(
-                FileOutcome(kind, "updated" if existing else "created", rows=rows)
-            )
+            result.files.append(FileOutcome(kind, "updated" if existing else "created", rows=rows))
 
         window = view["subject-window"]
         write("subject-window", window, per_platform=True, rows=len(window["rows"]))
@@ -342,6 +392,18 @@ class LearningService:
             result.files.append(FileOutcome("craft", "skipped", "no active craft rules"))
 
         result.files.append(FileOutcome("what-works", "skipped", "no ingestion yet (02 §3.4)"))
+
+        # N4. Written only when it has a map to be built from -- see `sequence`.
+        # `unfilled` rides along in the payload, so a run that finds a plan
+        # shorter than its calendar can say the pool is empty rather than
+        # quietly drafting whatever it likes for the slots past the end.
+        sequence = view["sequence"]
+        if sequence and sequence["slots"]:
+            write("sequence", sequence, per_platform=True, rows=len(sequence["slots"]))
+        else:
+            result.files.append(
+                FileOutcome("sequence", "skipped", "no strategy map to sequence from")
+            )
 
         prefs = view["preferences"]
         if prefs and (
@@ -467,9 +529,7 @@ class LearningService:
         if platform not in PLATFORMS:
             platform = platform_for_product(product_id)
         if platform is None:
-            return CollectResult(
-                run_id, False, "the record names no platform", client_slug=slug
-            )
+            return CollectResult(run_id, False, "the record names no platform", client_slug=slug)
 
         result = CollectResult(run_id, True, client_slug=slug, platform=platform)
         deliverable = _obj(record.get("deliverable"))
@@ -636,6 +696,7 @@ class LearningService:
 
 __all__ = [
     "PLATFORM_KINDS",
+    "SEQUENCE_SLOTS",
     "PREFERENCES_KIND",
     "CollectResult",
     "FileOutcome",
