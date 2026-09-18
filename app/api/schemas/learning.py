@@ -64,6 +64,10 @@ class LearningContextRead(BaseModel):
     strategy_map: dict[str, Any] | None = Field(default=None, alias="strategy-map")
     craft: dict[str, Any] | None = None
     preferences: dict[str, Any] | None = None
+    #: N4. Derived from ``strategy-map`` and ``subject-window`` above, so a
+    #: reader holding this payload can check the plan against what it was
+    #: planned from. ``null`` means no map, not an empty calendar.
+    sequence: dict[str, Any] | None = None
 
 
 class FeedbackEventCreate(BaseModel):

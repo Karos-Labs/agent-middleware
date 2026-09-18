@@ -8,7 +8,7 @@ Four kinds of caller, one router:
   completes, and ``POST /clients/{slug}/learning/feedback`` when a client
   acts on a draft;
 * the PORTAL's readiness and review pages read ``GET /clients/{slug}/learning/
-  {platform}`` -- the same seven payloads the next run will read, served from
+  {platform}`` -- the same payloads the next run will read, served from
   Postgres so the page needs no bucket access;
 * a PERSON (or the setup run, through the collector) writes the settings, the
   preferences, the strategy map and the craft rules.
@@ -41,7 +41,7 @@ from app.api.schemas.learning import (
 from app.core.roles import Role
 from app.dependencies import get_learning_service
 from app.security import require_role
-from app.services.learning import LearningService
+from app.services.learning import SEQUENCE_SLOTS, LearningService
 
 router = APIRouter(prefix="/clients/{client_slug}/learning", tags=["learning loop"])
 run_router = APIRouter(prefix="/runs", tags=["learning loop"])
@@ -143,8 +143,8 @@ async def write_preferences(
     response_model_by_alias=True,
     summary="The learning context the next run on this platform will read",
     description=(
-        "The seven C7 §2 payloads, keyed by file kind, built from the same tables the "
-        "projector reads. `null` means the file would be absent."
+        "The C7 §2 payloads plus N4's derived `sequence`, keyed by file kind, built from the "
+        "same tables the projector reads. `null` means the file would be absent."
     ),
 )
 async def read_learning_context(
@@ -154,6 +154,32 @@ async def read_learning_context(
 ) -> LearningContextRead:
     view = await service.context(client_slug, platform)
     return LearningContextRead.model_validate(view)
+
+
+@router.get(
+    "/{platform}/sequence",
+    response_model=dict[str, Any] | None,
+    summary="N4: which post goes in each of the next slots, and why",
+    description=(
+        "Derived on the spot from the strategy map and the subject window, never stored. "
+        "`null` means this client has no map on this platform yet, which is an ordinary "
+        "state before their first run and not the same as an empty calendar. `unfilled` "
+        "counts the slots the open map could not cover -- the signal that it needs "
+        "rebuilding before the client starts repeating themselves."
+    ),
+)
+async def read_sequence(
+    client_slug: SlugStr,
+    platform: Platform,
+    slots: Annotated[int, Query(ge=1, le=60)] = SEQUENCE_SLOTS,
+    service: LearningService = Depends(get_learning_service),
+) -> dict[str, Any] | None:
+    settings = await service.store.settings(client_slug, platform)
+    window = await service.store.subject_window(
+        client_slug, platform, days=settings["antiRepeatDays"]
+    )
+    strategy = await service.store.strategy_map(client_slug, platform)
+    return service.sequence(strategy, window, slots=slots)
 
 
 @router.get(
