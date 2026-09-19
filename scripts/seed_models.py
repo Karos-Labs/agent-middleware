@@ -122,8 +122,11 @@ CLAUDE_FALLBACK = (
     "granted), so in practice these run on the direct Anthropic API."
 )
 GEMINI_FALLBACK = (
-    "None. Gemini is served by Vertex AI only; a failure on Vertex fails the step, there "
-    "is no second transport for these models."
+    "None in practice. The engine wires a three-hop chain -- Vertex, then the Gemini "
+    "Developer API on the SAME model ids, then a Claude substitution where a text answer "
+    "is honest -- but the middle hop needs GEMINI_API_KEY, which is set in neither prep "
+    "nor prod, so today a failure on Vertex fails the step or falls through to a "
+    "different vendor's model."
 )
 NOT_ROUTED = (
     "Not routed in this deployment: no adapter is configured for this vendor, so a "
@@ -473,8 +476,24 @@ CATALOG: tuple[dict[str, Any], ...] = (
 #:     them (only Haiku 3.5, which is therefore in CATALOG above). A price
 #:     would have to come from an archived list, and dating that "checked
 #:     today" is the lie this file exists to prevent.
-#:   * gemini-3-1-pro-preview -- in preview, and Vertex publishes no price for
-#:     it. This is the one that needs an answer soon: see the check below.
+#:   * the Gemini 3.x rows -- gemini-3-1-pro-preview and gemini-3-8-flash.
+#:     Vertex's price list carries NO 3.x model at all: rechecked 2026-09-19,
+#:     and it still stops at 2.5 Pro / 2.5 Flash / 2.5 Flash-Lite. These are
+#:     the rows that need an answer soonest, because unlike the Claude 3.x and
+#:     gpt-4o rows below they are `available` -- eleven engine steps point at
+#:     one of them today. See `_pricing_warnings` below, which says so on
+#:     every seed.
+#:
+#:     DO NOT copy agent-engine's numbers into CATALOG to close this. The
+#:     engine prices both from `ai.google.dev/gemini-api/docs/pricing` -- the
+#:     Gemini DEVELOPER API's list, a different product surface from the
+#:     Vertex list every other gemini row here is priced against, and not the
+#:     surface these calls go to: `createGeminiVendorAdapter` routes stages
+#:     through Vertex, and the direct endpoint is a failover hop wired in
+#:     neither prep nor prod. Its 3.8-flash rate is also promotional
+#:     ($0.75/$3.75 through 2026-12-31, $1.50/$7.50 after), which is a second
+#:     reason a copied number would go quietly wrong. A price for these rows
+#:     has to come from Vertex publishing one, or from a real invoice.
 #:   * gpt-4o / gpt-4o-mini -- not on OpenAI's current price page under these
 #:     names, and no adapter routes them here anyway.
 UNPRICED: tuple[dict[str, object], ...] = (
@@ -486,10 +505,37 @@ UNPRICED: tuple[dict[str, object], ...] = (
         "availability": "available",
         "provider_model_name": "gemini-3.1-pro-preview",
         "region": "global",
-        "description": "Preview tier. Routed, and the only unpriced model that is.",
+        "description": (
+            "Preview tier, and routed -- so a stage pointed here produces a run "
+            "costed at the fallback rate. One of the two Gemini 3.x rows Vertex "
+            "publishes no price for."
+        ),
         "context_window": 1_000_000,
         "supports_tools": True,
         "tiers": ["portable"],
+        "fallback": GEMINI_FALLBACK,
+    },
+    {
+        "model_id": "gemini-3-8-flash",
+        "display_name": "Gemini 3.8 Flash",
+        "vendor": "google",
+        "route": "gemini",
+        "availability": "available",
+        "provider_model_name": "gemini-3.8-flash",
+        # `global`, not us-central1: every 3.x id 404s at us-central1 and
+        # answers on `global` (agent-engine's capture adapter records the
+        # probe, 2026-09-17), which is why this row reads like the preview one
+        # above rather than like the 2.5 rows.
+        "region": "global",
+        "description": (
+            "The flash tier for every Gemini step since the 3.x migration -- 3 "
+            "instagram steps name it today, and it is the model the engine's "
+            "vision and video-QA tools default to. Routed, and Vertex publishes "
+            "no price for it."
+        ),
+        "context_window": 1_000_000,
+        "supports_tools": True,
+        "tiers": ["commodity"],
         "fallback": GEMINI_FALLBACK,
     },
     {

@@ -546,3 +546,59 @@ def test_the_seed_refuses_an_alias_pointing_outside_the_catalog(
     )
     problems = seed_models._check_prices_are_sane()
     assert any("not in the catalog" in problem for problem in problems)
+
+
+def test_every_model_an_engine_stage_names_is_in_one_of_the_two_lists() -> None:
+    """The gap the two lists exist to make visible, and could not see itself.
+
+    `CATALOG` is "somebody priced this"; `UNPRICED` is "somebody looked and
+    could not". A model in NEITHER is the third state, and it is the only one
+    nothing reports: `GET /models/pricing-coverage` reports full coverage of a
+    catalog that has never heard of the model, `_pricing_warnings` says nothing
+    because it only walks `UNPRICED`, and the runs cost out at the $3/$15
+    fallback exactly as if the model were priced.
+
+    That is not hypothetical. `gemini-3.8-flash` -- three instagram steps and
+    the engine's whole vision/video-QA default -- sat in neither list from the
+    3.x migration until SCRUM-346's inventory joined the two files and found
+    it. Nothing else in this repo would have.
+
+    `provider_model_name` is the join key deliberately: it is the string a
+    stage's `default_model` actually carries, and `model_id` is this file's
+    own slug for it.
+    """
+
+    import json
+    from pathlib import Path
+
+    from scripts.seed_models import CATALOG, UNPRICED
+
+    stages = json.loads(
+        (Path(__file__).resolve().parents[1] / "scripts" / "engine_stages.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    named: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            model = node.get("default_model")
+            if isinstance(model, str) and model:
+                named.add(model)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(stages)
+    assert named, "engine_stages.json named no models at all -- the walk is wrong"
+
+    known = {str(entry["provider_model_name"]) for entry in (*CATALOG, *UNPRICED)}
+    missing = sorted(named - known)
+    assert not missing, (
+        "engine stages name models the control plane has never heard of: "
+        f"{missing}. Price it in CATALOG, or -- if nobody can -- put it in "
+        "UNPRICED so the gap is a recorded decision rather than an invisible one."
+    )

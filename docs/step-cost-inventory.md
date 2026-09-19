@@ -70,18 +70,13 @@
 | 62 | tiktok-content-design-agent | `01d-topic-scout` | unclassified | `gemini-3.1-pro-preview` | ? | ? |
 | 63 | tiktok-content-design-agent | `03a-moment` | unclassified | `gemini-3.1-pro-preview` | ? | ? |
 
-## 3 step(s) run a model the config plane has never heard of
+## 14 step(s) on a model deliberately left unpriced
 
-Not in `CATALOG` and not in `UNPRICED` — so this is not a decision anybody recorded, it is a gap. These steps cannot be priced, budgeted or compared, and nothing fails to tell you.
+In `UNPRICED` (`gemini-3.1-pro-preview`, `gemini-3.8-flash`) — somebody looked and recorded that no primary source publishes a rate. That is a defensible choice per model; what this table adds is how much of the fleet now depends on it, which is the number that decides whether it stays defensible.
 
 * instagram-agent · `00c6-review-template-set` → `gemini-3.8-flash`
 * instagram-agent · `04b-research-extract-facts` → `gemini-3.8-flash`
 * instagram-agent · `04b3-extract-entities` → `gemini-3.8-flash`
-
-## 11 step(s) on a model deliberately left unpriced
-
-In `UNPRICED` (`gemini-3.1-pro-preview`) — somebody looked and recorded that no primary source publishes a rate. That is a defensible choice per model; what this table adds is how much of the fleet now depends on it, which is the number that decides whether it stays defensible.
-
 * instagram-agent · `06-vet-images` → `gemini-3.1-pro-preview`
 * instagram-agent · `06h2-vet-floor-images` → `gemini-3.1-pro-preview`
 * instagram-agent · `08b-visual-qa` → `gemini-3.1-pro-preview`
