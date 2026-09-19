@@ -207,6 +207,20 @@ def review_cycle_gate_kind(text: str, pos: int) -> str:
     Bounded by the NEXT ``gateId`` rather than by a character count: if another
     review cycle starts before this one's ``buildGate`` is found, the two are
     not related and guessing would attribute one agent's gate kind to another.
+
+    THAT BOUND IS THEN USED, which it was not. This searched within the
+    structural limit for ``buildGate`` and then handed the result to
+    ``gate_kind_after``'s fixed 400-character window, throwing the bound away
+    one line after computing it. A review cycle's ``buildGate`` does real work
+    before it names a kind -- instagram's builds a verdict object first, and
+    its ``kind`` sits 4,737 characters in -- so every gate shaped like that
+    silently lost its ``gate_kind``. Silently is the word: ``--check`` compares
+    whole files, so the loss showed up as "stale", and regenerating "fixed" the
+    staleness by dropping the field.
+
+    The structural bound is the right one and needs no window: between this
+    ``gateId`` and the next there is exactly one review cycle, so the first
+    ``kind:`` after its ``buildGate`` is that cycle's.
     """
 
     limit = REVIEW_CYCLE_GATE.search(text, pos)
@@ -214,7 +228,8 @@ def review_cycle_gate_kind(text: str, pos: int) -> str:
     build = BUILD_GATE.search(text, pos, end)
     if not build:
         return ""
-    return gate_kind_after(text, build.end())
+    match = GATE_KIND.search(text, build.end(), end)
+    return match.group(1) if match else ""
 
 
 def collapse_retry_suffix(step_id: str) -> str:
