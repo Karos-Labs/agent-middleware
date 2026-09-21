@@ -1,0 +1,122 @@
+name: Migrate the configuration database
+
+# Manual only, and the first mechanism this repo has ever had for applying
+# migrations at all.
+#
+# WHY. `migrations/README.md` was the whole process: a `for f in …; psql` loop
+# a person ran by hand. Nothing recorded whether it had been run and nothing
+# failed when it had not — `app/db/postgres.py` logs its schema check and then
+# returns the pool anyway, so an unmigrated database reports itself Ready and
+# 500s at query time instead.
+#
+# It was never run against production. On 2026-09-21 the prod service was
+# raising `UndefinedTableError: relation "agents" does not exist`, plus
+# `learning_settings` and `subject_rows`, and a probe confirmed the `config`
+# schema did not exist at all — not one migration, from 0001 onward, while the
+# deploy workflow's own "Verify the new revision is serving" step passed.
+#
+# A ONE-TIME GRANT IS REQUIRED BEFORE THE FIRST RUN ON A FRESH DATABASE.
+# The build connects as the instance's IAM user (the same identity in the
+# service's `CONFIG_DB_DSN`), and that user cannot create a schema until a
+# superuser says so:
+#
+#   gcloud sql users set-password postgres \
+#     --instance=karos-config-prod --project=karoscmo --prompt-for-password
+#   # then, connected to karos-prod as postgres:
+#   GRANT CREATE ON DATABASE "karos-prod" TO "agent-middleware-sa@karoscmo.iam";
+#
+# Without it the run stops on 0001 with `permission denied for database`, which
+# is the correct failure: `ON_ERROR_STOP=1` means nothing is half-applied, and
+# 0001 is a single transaction that rolls back whole.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which database to migrate"
+        required: true
+        type: choice
+        options: [prep, production]
+      allow_0001_failure:
+        description: "Continue when 0001 refuses because the schema is already present (leave false on a first run)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: migrate-db-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  migrate:
+    name: Apply migrations (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    # Production goes through the same approval gate as a deploy. A schema
+    # change is at least as consequential as a revision roll.
+    environment: ${{ inputs.environment == 'production' && 'production' || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve target
+        id: target
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "project=${{ vars.PROD_PROJECT_ID }}"           >> "$GITHUB_OUTPUT"
+            echo "instance=${{ vars.PROD_CLOUDSQL_INSTANCE }}"   >> "$GITHUB_OUTPUT"
+            echo "sa=${{ vars.PROD_SERVICE_ACCOUNT }}"           >> "$GITHUB_OUTPUT"
+          else
+            echo "project=${{ vars.PREP_PROJECT_ID }}"           >> "$GITHUB_OUTPUT"
+            echo "instance=${{ vars.PREP_CLOUDSQL_INSTANCE }}"   >> "$GITHUB_OUTPUT"
+            echo "sa=${{ vars.PREP_SERVICE_ACCOUNT }}"           >> "$GITHUB_OUTPUT"
+          fi
+
+      # The database name and IAM user are DERIVED from the DSN this repo
+      # already stores, rather than restated as two more variables that can
+      # drift out of step with the one the service actually connects with.
+      - name: Derive database and user from the stored DSN
+        id: dsn
+        env:
+          DSN: ${{ inputs.environment == 'production' && vars.PROD_CONFIG_DB_DSN || vars.PREP_CONFIG_DB_DSN }}
+        run: |
+          if [ -z "$DSN" ]; then
+            echo "::error::No CONFIG_DB_DSN variable is set for ${{ inputs.environment }} — nothing to migrate."
+            exit 1
+          fi
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, urllib.parse as u
+          p = u.urlparse(os.environ["DSN"])
+          print(f"db={p.path.lstrip('/')}")
+          print(f"user={u.unquote(p.username or '')}")
+          PY
+          cat "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Runs AS the middleware's own service account so the proxy's
+      # `--auto-iam-authn` login is the database user that already exists.
+      - name: Apply migrations via Cloud Build
+        env:
+          PROJECT: ${{ steps.target.outputs.project }}
+          INSTANCE: ${{ steps.target.outputs.instance }}
+          SA: ${{ steps.target.outputs.sa }}
+          DB: ${{ steps.dsn.outputs.db }}
+          DB_USER: ${{ steps.dsn.outputs.user }}
+          ALLOW: ${{ inputs.allow_0001_failure }}
+        run: |
+          gcloud builds submit \
+            --project="$PROJECT" \
+            --config=cloudbuild.migrate.yaml \
+            --service-account="projects/$PROJECT/serviceAccounts/$SA" \
+            --gcs-source-staging-dir="gs://${PROJECT}_cloudbuild/source" \
+            --substitutions="^|^_INSTANCE=$INSTANCE|_DB=$DB|_DB_USER=$DB_USER|_ALLOW_0001_FAILURE=$ALLOW"
