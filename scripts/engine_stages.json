@@ -39,7 +39,7 @@
     {
       "id": "09-draft-post",
       "kind": "agent",
-      "skill_ref": "blog-craft@3",
+      "skill_ref": "blog-craft@4",
       "agent_id": "blog-draft",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
@@ -47,7 +47,7 @@
     {
       "id": "09z-regenerate-post",
       "kind": "agent",
-      "skill_ref": "blog-craft@3",
+      "skill_ref": "blog-craft@4",
       "agent_id": "blog-draft",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
@@ -142,10 +142,14 @@
     {
       "id": "06-highlights",
       "kind": "agent",
-      "skill_ref": "branded-shorts-highlights@1",
+      "skill_ref": "branded-shorts-highlights@2",
       "agent_id": "branded-shorts-highlights",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
+    },
+    {
+      "id": "06b-highlight-rhythm",
+      "kind": "code"
     },
     {
       "id": "07-color-grade",
@@ -169,6 +173,10 @@
     },
     {
       "id": "08b-render-and-gate",
+      "kind": "code"
+    },
+    {
+      "id": "08b2-plate-budget",
       "kind": "code"
     },
     {
@@ -458,6 +466,10 @@
       "kind": "code"
     },
     {
+      "id": "03f2-engine-coverage",
+      "kind": "code"
+    },
+    {
       "id": "03g-select-topic",
       "kind": "code"
     },
@@ -564,7 +576,7 @@
     {
       "id": "05-write-copy",
       "kind": "agent",
-      "skill_ref": "instagram-copy@24",
+      "skill_ref": "instagram-copy@28",
       "agent_id": "instagram-copy",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
@@ -598,6 +610,18 @@
       "kind": "code"
     },
     {
+      "id": "05m-repair-mechanical-tells",
+      "kind": "code"
+    },
+    {
+      "id": "05r-revise-copy",
+      "kind": "agent",
+      "skill_ref": "instagram-copy-revise@1",
+      "agent_id": "instagram-copy-revise",
+      "default_model": "claude-sonnet-4-6",
+      "vendor": "anthropic"
+    },
+    {
       "id": "05y-read-media-library",
       "kind": "code"
     },
@@ -608,7 +632,7 @@
     {
       "id": "06-vet-images",
       "kind": "agent",
-      "skill_ref": "instagram-image-vet@6",
+      "skill_ref": "instagram-image-vet@8",
       "agent_id": "instagram-image-vet",
       "default_model": "gemini-3.1-pro-preview",
       "vendor": "gemini"
@@ -626,7 +650,15 @@
       "kind": "code"
     },
     {
-      "id": "06f-verify-images-on-disk",
+      "id": "06e2-stage-images-durably",
+      "kind": "code"
+    },
+    {
+      "id": "06f2-one-picture-one-slide",
+      "kind": "code"
+    },
+    {
+      "id": "06f3-generated-frame-variety",
       "kind": "code"
     },
     {
@@ -640,7 +672,7 @@
     {
       "id": "06h2-vet-floor-images",
       "kind": "agent",
-      "skill_ref": "instagram-image-vet@6",
+      "skill_ref": "instagram-image-vet@8",
       "agent_id": "instagram-image-vet",
       "default_model": "gemini-3.1-pro-preview",
       "vendor": "gemini"
@@ -1574,7 +1606,35 @@
       "vendor": "gemini"
     },
     {
+      "id": "01e-read-shape-memory",
+      "kind": "code"
+    },
+    {
+      "id": "01f-build-harvest-query",
+      "kind": "code"
+    },
+    {
+      "id": "01g-source-fit",
+      "kind": "code"
+    },
+    {
+      "id": "01g-source-fit-judge",
+      "kind": "agent",
+      "skill_ref": "tiktok-source-fit@1",
+      "agent_id": "tiktok-source-fit",
+      "default_model": "gemini-3.8-flash",
+      "vendor": "gemini"
+    },
+    {
+      "id": "01h-build-podcast-query",
+      "kind": "code"
+    },
+    {
       "id": "02-transcribe",
+      "kind": "code"
+    },
+    {
+      "id": "02d-resolve-target-language",
       "kind": "code"
     },
     {
@@ -1584,7 +1644,7 @@
     {
       "id": "03a-moment",
       "kind": "agent",
-      "skill_ref": "tiktok-moment@2",
+      "skill_ref": "tiktok-moment@3",
       "agent_id": "tiktok-moment",
       "default_model": "gemini-3.1-pro-preview",
       "vendor": "gemini"
@@ -1603,6 +1663,10 @@
     },
     {
       "id": "04-cut-bounds",
+      "kind": "code"
+    },
+    {
+      "id": "04b-moment-floor",
       "kind": "code"
     },
     {
@@ -1713,7 +1777,35 @@
       "vendor": "gemini"
     },
     {
+      "id": "01e-read-shape-memory",
+      "kind": "code"
+    },
+    {
+      "id": "01f-build-harvest-query",
+      "kind": "code"
+    },
+    {
+      "id": "01g-source-fit",
+      "kind": "code"
+    },
+    {
+      "id": "01g-source-fit-judge",
+      "kind": "agent",
+      "skill_ref": "tiktok-source-fit@1",
+      "agent_id": "tiktok-source-fit",
+      "default_model": "gemini-3.8-flash",
+      "vendor": "gemini"
+    },
+    {
+      "id": "01h-build-podcast-query",
+      "kind": "code"
+    },
+    {
       "id": "02-transcribe",
+      "kind": "code"
+    },
+    {
+      "id": "02d-resolve-target-language",
       "kind": "code"
     },
     {
@@ -1723,7 +1815,7 @@
     {
       "id": "03a-moment",
       "kind": "agent",
-      "skill_ref": "tiktok-moment@2",
+      "skill_ref": "tiktok-moment@3",
       "agent_id": "tiktok-moment",
       "default_model": "gemini-3.1-pro-preview",
       "vendor": "gemini"
@@ -1742,6 +1834,10 @@
     },
     {
       "id": "04-cut-bounds",
+      "kind": "code"
+    },
+    {
+      "id": "04b-moment-floor",
       "kind": "code"
     },
     {
@@ -1852,7 +1948,35 @@
       "vendor": "gemini"
     },
     {
+      "id": "01e-read-shape-memory",
+      "kind": "code"
+    },
+    {
+      "id": "01f-build-harvest-query",
+      "kind": "code"
+    },
+    {
+      "id": "01g-source-fit",
+      "kind": "code"
+    },
+    {
+      "id": "01g-source-fit-judge",
+      "kind": "agent",
+      "skill_ref": "tiktok-source-fit@1",
+      "agent_id": "tiktok-source-fit",
+      "default_model": "gemini-3.8-flash",
+      "vendor": "gemini"
+    },
+    {
+      "id": "01h-build-podcast-query",
+      "kind": "code"
+    },
+    {
       "id": "02-transcribe",
+      "kind": "code"
+    },
+    {
+      "id": "02d-resolve-target-language",
       "kind": "code"
     },
     {
@@ -1862,7 +1986,7 @@
     {
       "id": "03a-moment",
       "kind": "agent",
-      "skill_ref": "tiktok-moment@2",
+      "skill_ref": "tiktok-moment@3",
       "agent_id": "tiktok-moment",
       "default_model": "gemini-3.1-pro-preview",
       "vendor": "gemini"
@@ -1881,6 +2005,10 @@
     },
     {
       "id": "04-cut-bounds",
+      "kind": "code"
+    },
+    {
+      "id": "04b-moment-floor",
       "kind": "code"
     },
     {
@@ -1997,10 +2125,14 @@
     {
       "id": "06-highlights",
       "kind": "agent",
-      "skill_ref": "branded-shorts-highlights@1",
+      "skill_ref": "branded-shorts-highlights@2",
       "agent_id": "branded-shorts-highlights",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
+    },
+    {
+      "id": "06b-highlight-rhythm",
+      "kind": "code"
     },
     {
       "id": "07-color-grade",
@@ -2024,6 +2156,10 @@
     },
     {
       "id": "08b-render-and-gate",
+      "kind": "code"
+    },
+    {
+      "id": "08b2-plate-budget",
       "kind": "code"
     },
     {

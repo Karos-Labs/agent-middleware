@@ -130,3 +130,27 @@ jobs:
             --project="${{ vars.PROD_PROJECT_ID }}" \
             --region="${{ vars.PROD_REGION || 'europe-west1' }}" \
             --format='value(status.url,status.latestReadyRevisionName)'
+
+      # ── The catalog and the Studio's stage list live in FIRESTORE ──
+      #
+      # Not in the container. So a deploy that only rolls the image leaves them
+      # exactly as stale as they already were, and nothing anywhere says so.
+      #
+      # That is how production came to describe `instagram-agent` as a 16-stage
+      # workflow while the engine ran 122 of them, and how the three TikTok
+      # products of the D08 split — `tiktok-clipping-agent`,
+      # `tiktok-editing-agent`, `tiktok-content-design-agent` — plus
+      # `campaign-orchestrator` had no production row at all. Measured
+      # 2026-09-22: 12 agent documents in production against 23 in prep. The
+      # seeder was correct and complete the whole time; it had simply never been
+      # run there, because running it was something a person had to remember
+      # rather than something the deploy did.
+      #
+      # Safe on every deploy: idempotent by content comparison, writes with
+      # `merge=True` so fields it does not own survive, preserves the per-stage
+      # model overrides a Studio user set, and retires rather than deletes. An
+      # already-current environment prints "unchanged" and writes nothing.
+      - name: Seed the agent catalog into Firestore (prod)
+        run: |
+          python3 -m pip install --quiet "google-cloud-firestore>=2.16,<3.0"
+          python3 scripts/seed_all_agents.py --env prod
