@@ -1,0 +1,139 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Apply migrations/*.sql to a Cloud SQL instance, in filename order, with the
+# verify script last.
+#
+# WHY THIS EXISTS. Until now `migrations/README.md` was the whole mechanism: a
+# `for f in …; psql` loop a person ran by hand. Nothing recorded whether it had
+# been run, nothing failed when it had not, and `app/db/postgres.py` logs its
+# schema check and then serves anyway — so an unmigrated database looks healthy
+# and 500s at query time instead.
+#
+# It was not run against production. On 2026-09-21 the prod service was raising
+# `UndefinedTableError: relation "agents" does not exist`, plus
+# `learning_settings` and `subject_rows` — i.e. not one migration had been
+# applied, from 0001 onward, while the service reported itself Ready.
+#
+# HOW IT CONNECTS. Cloud SQL IAM database authentication. The build runs AS the
+# service account that is already the instance's IAM user (the same identity in
+# the service's own `CONFIG_DB_DSN`), so the proxy's `--auto-iam-authn` login
+# and the database role line up with no password anywhere and no second
+# credential to manage. `--service-account` on the submit is what makes the
+# build carry that identity.
+#
+# Usage (see .github/workflows/migrate-db.yml, which is how this should be run):
+#
+#   gcloud builds submit --project=karoscmo --config=cloudbuild.migrate.yaml \
+#     --substitutions=_INSTANCE=karoscmo:europe-west1:karos-config-prod,_DB=karos-prod,_DB_USER=agent-middleware-sa@karoscmo.iam \
+#     --service-account=projects/karoscmo/serviceAccounts/agent-middleware-sa@karoscmo.iam.gserviceaccount.com \
+#     --default-buckets-behavior=regional-user-owned-bucket
+#
+# Safe to re-run: 0002-0007 and the verify script are idempotent, and 0001 is a
+# single transaction that fails atomically when the schema is already there —
+# which is why `_ALLOW_0001_FAILURE` exists. Leave it `false` on a first run so
+# a genuine failure stops the loop; set it `true` afterwards, when 0001 is
+# expected to refuse.
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  _INSTANCE: ""            # project:region:instance
+  _DB: ""                  # database name
+  _DB_USER: ""             # IAM user, e.g. agent-middleware-sa@karoscmo.iam
+  _PROXY_VERSION: "v2.14.1"
+  _ALLOW_0001_FAILURE: "false"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: apply
+    name: postgres:16-bookworm
+    entrypoint: bash
+    env:
+      - "INSTANCE=${_INSTANCE}"
+      - "DB=${_DB}"
+      - "DB_USER=${_DB_USER}"
+      - "PROXY_VERSION=${_PROXY_VERSION}"
+      - "ALLOW_0001_FAILURE=${_ALLOW_0001_FAILURE}"
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        for v in INSTANCE DB DB_USER; do
+          if [ -z "$${!v}" ]; then
+            echo "::error:: _$${v} is required — refusing to guess which database to migrate."
+            exit 1
+          fi
+        done
+
+        echo "--- downloading cloud-sql-proxy $${PROXY_VERSION}"
+        apt-get update -qq >/dev/null
+        apt-get install -y -qq curl ca-certificates >/dev/null
+        curl -sSLo /tmp/cloud-sql-proxy \
+          "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/$${PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
+        chmod +x /tmp/cloud-sql-proxy
+
+        # --auto-iam-authn: the proxy mints the access token for the identity
+        # this build runs as and hands it to Postgres as the password, so the
+        # DB user below must BE that service account.
+        echo "--- starting the proxy against $${INSTANCE}"
+        /tmp/cloud-sql-proxy --auto-iam-authn --address 127.0.0.1 --port 5432 "$${INSTANCE}" &
+        PROXY_PID=$$!
+        trap 'kill "$${PROXY_PID}" 2>/dev/null || true' EXIT
+
+        for _ in $$(seq 1 45); do
+          if pg_isready -h 127.0.0.1 -p 5432 -q; then break; fi
+          # A proxy that died (bad instance, missing grant) must not look like
+          # a slow start — fail with its own exit status rather than a timeout.
+          if ! kill -0 "$${PROXY_PID}" 2>/dev/null; then
+            echo "::error:: cloud-sql-proxy exited before accepting connections."
+            exit 1
+          fi
+          sleep 1
+        done
+        pg_isready -h 127.0.0.1 -p 5432 || { echo "::error:: proxy never became ready"; exit 1; }
+
+        # The password is supplied by the proxy; psql still wants the field.
+        export PGPASSWORD=""
+        DSN="host=127.0.0.1 port=5432 dbname=$${DB} user=$${DB_USER} sslmode=disable"
+
+        echo "--- connected as:"
+        psql "$${DSN}" -Atc "select current_user, current_database(), version()"
+
+        echo "--- already applied (empty or an error here means a fresh database):"
+        psql "$${DSN}" -Atc "select filename from config.schema_migrations order by filename" || true
+
+        FILES="0001_config_plane 0002_reference_data 0003_model_catalog \
+               0004_prompt_projection 0005_stage_source 0006_run_feedback \
+               0007_learning_loop 0001_config_plane_verify"
+
+        for f in $$FILES; do
+          echo "=== applying migrations/$$f.sql"
+          if psql "$${DSN}" -v ON_ERROR_STOP=1 -f "migrations/$$f.sql"; then
+            continue
+          fi
+          # ON_ERROR_STOP is not optional (README): a half-applied migration is
+          # worse than a failed one, so the loop stops here for everything
+          # except the one file that is expected to refuse on a re-run.
+          if [ "$$f" = "0001_config_plane" ] && [ "$${ALLOW_0001_FAILURE}" = "true" ]; then
+            echo "--- 0001 refused and _ALLOW_0001_FAILURE=true; the schema is already present, continuing."
+            continue
+          fi
+          echo "::error:: migrations/$$f.sql failed — stopping before anything else is applied."
+          exit 1
+        done
+
+        echo "--- schema_migrations after this run:"
+        psql "$${DSN}" -Atc "select filename, applied_at from config.schema_migrations order by filename"
+
+        # The three tables whose absence was the production symptom. Asserted
+        # rather than printed: a migration run that "succeeded" while the
+        # service still cannot answer is the failure this file exists to end.
+        echo "--- verifying the tables prod was missing"
+        psql "$${DSN}" -v ON_ERROR_STOP=1 -Atc "
+          select case when count(*) = 3 then 'ok'
+                      else 'MISSING: ' || (3 - count(*))::text end
+          from information_schema.tables
+          where table_name in ('agents','learning_settings','subject_rows')" | tee /tmp/check
+        grep -qx ok /tmp/check || { echo "::error:: expected tables are still absent after migrating."; exit 1; }
+        echo "--- done"
