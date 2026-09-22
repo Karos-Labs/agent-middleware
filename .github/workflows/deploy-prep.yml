@@ -136,7 +136,12 @@ jobs:
       #
       # Safe on every deploy: idempotent by content comparison, `merge=True`,
       # preserves per-stage model overrides, retires rather than deletes.
-      - name: Seed the agent catalog into Firestore (prep)
+      # Models before agents — an agent row names a model by id from the
+      # `models` collection. See deploy-prod.yml for the drift that found this.
+      - name: Seed the model catalog into Firestore (prep)
         run: |
           python3 -m pip install --quiet "google-cloud-firestore>=2.16,<3.0"
-          python3 scripts/seed_all_agents.py --env prep
+          python3 scripts/seed_models.py --env prep
+
+      - name: Seed the agent catalog into Firestore (prep)
+        run: python3 scripts/seed_all_agents.py --env prep
