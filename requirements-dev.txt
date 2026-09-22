@@ -10,3 +10,9 @@ mypy>=1.10,<2.0
 # Tests that need it skip with a reason when it is unavailable, so a CI image
 # without it fails loudly on the skip count rather than silently passing.
 pgserver>=0.1.4
+
+# The production dependency gate (CI: "Production dependency advisories").
+# Audits requirements.txt — what the Dockerfile actually installs — rather
+# than the resolved dev environment, so a test runner's advisory cannot block
+# a deploy and teach people to route around the step.
+pip-audit>=2.7

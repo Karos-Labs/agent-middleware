@@ -61,3 +61,22 @@ jobs:
       # become a deletion list.
       - name: Config inventory
         run: python scripts/config_inventory.py --check
+
+      # There was no dependency gate in this repository at all: a supply-chain
+      # advisory could land in what the container installs and ship with
+      # nothing anywhere saying so.
+      #
+      # `-r requirements.txt` rather than the resolved environment, because
+      # that file IS what the Dockerfile installs — auditing the dev
+      # environment would fail on a test runner that never ships and teach
+      # people to route around this step.
+      #
+      # No accepted-advisory list here, deliberately. There is nothing to
+      # accept today (`No known vulnerabilities found`, 2026-09-22), and an
+      # exception mechanism written before the first exception is a mechanism
+      # nobody has had to justify. Add one when a real advisory forces the
+      # argument — agent-engine's `scripts/check-dependency-audit.mjs` is the
+      # shape to copy, where each acceptance is a dated entry with a stated
+      # reason rather than a lowered threshold.
+      - name: Production dependency advisories
+        run: pip-audit -r requirements.txt --progress-spinner off
