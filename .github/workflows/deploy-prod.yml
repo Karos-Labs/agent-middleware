@@ -150,7 +150,17 @@ jobs:
       # `merge=True` so fields it does not own survive, preserves the per-stage
       # model overrides a Studio user set, and retires rather than deletes. An
       # already-current environment prints "unchanged" and writes nothing.
-      - name: Seed the agent catalog into Firestore (prod)
+      # Models before agents: an agent row names a model by id from the
+      # `models` collection, so seeding agents against a catalog that does not
+      # contain the model they point at leaves the Studio rendering a stage
+      # whose model it cannot describe. Measured 2026-09-22: 6 model rows in
+      # production against 22 in prep, with `claude-opus-5-on-vertex` and
+      # `claude-sonnet-5-on-vertex` among the missing — the two the fleet
+      # actually routes to.
+      - name: Seed the model catalog into Firestore (prod)
         run: |
           python3 -m pip install --quiet "google-cloud-firestore>=2.16,<3.0"
-          python3 scripts/seed_all_agents.py --env prod
+          python3 scripts/seed_models.py --env prod
+
+      - name: Seed the agent catalog into Firestore (prod)
+        run: python3 scripts/seed_all_agents.py --env prod
