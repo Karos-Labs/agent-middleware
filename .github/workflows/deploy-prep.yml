@@ -128,3 +128,15 @@ jobs:
             --region="${{ vars.PREP_REGION || 'us-central1' }}" \
             --format='value(status.conditions)' | grep -q 'True' \
             || { echo "::error::Revision is not Ready"; exit 1; }
+
+      # The catalog and the Studio's stage list live in Firestore, not in the
+      # container, so rolling the image leaves them as stale as they were. See
+      # the matching step in deploy-prod.yml for the production drift that
+      # made this a deploy step instead of something a person remembered.
+      #
+      # Safe on every deploy: idempotent by content comparison, `merge=True`,
+      # preserves per-stage model overrides, retires rather than deletes.
+      - name: Seed the agent catalog into Firestore (prep)
+        run: |
+          python3 -m pip install --quiet "google-cloud-firestore>=2.16,<3.0"
+          python3 scripts/seed_all_agents.py --env prep
