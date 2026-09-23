@@ -131,6 +131,33 @@ jobs:
             --region="${{ vars.PROD_REGION || 'europe-west1' }}" \
             --format='value(status.url,status.latestReadyRevisionName)'
 
+      # ── The OTHER store ────────────────────────────────────────────────────
+      #
+      # "Serving" only ever meant Firestore. Production ran with ZERO tables in
+      # `karos-prod` -- not one migration had ever been applied -- while this
+      # step passed every time, because nothing here asked about Cloud SQL and
+      # `/health/ready` did not report it.
+      #
+      # `schema_missing` is unambiguous: the pool built, the connection works,
+      # and there is not one table behind it. That is a migration nobody ran,
+      # and it fails the deploy rather than being echoed into a log. The other
+      # two non-ok states do NOT fail it, on purpose: `not_configured` is an
+      # environment with no Cloud SQL, which is allowed, and `unavailable` is a
+      # blip or a grant, which a redeploy would not fix and which the service
+      # is designed to serve through.
+      #
+      # The fix when this fires is `migrate-db.yml`, a separate workflow, so a
+      # red deploy here never blocks the thing that makes it green.
+      - name: Verify the configuration database has a schema
+        run: |
+          URL=$(gcloud run services describe agent-middleware             --project="${{ vars.PROD_PROJECT_ID }}"             --region="${{ vars.PROD_REGION || 'europe-west1' }}"             --format='value(status.url)')
+          STATE=$(curl -sf -H "Authorization: Bearer $(gcloud auth print-identity-token)"             "$URL/health/ready" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config_database','unknown'))")
+          echo "config_database=$STATE"
+          if [ "$STATE" = "schema_missing" ]; then
+            echo "::error::The configuration database has no schema -- no migration has been applied. Run the 'Migrate the configuration database' workflow. The service will keep serving its Firestore routes and every Cloud SQL-backed route will 500."
+            exit 1
+          fi
+
       # ── The catalog and the Studio's stage list live in FIRESTORE ──
       #
       # Not in the container. So a deploy that only rolls the image leaves them
