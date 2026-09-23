@@ -64,10 +64,17 @@ jobs:
           GCP_DEPLOYER_SA: ${{ vars.GCP_DEPLOYER_SA }}
 
       - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          # An ID token for the service's own URL, minted here because
+          # `gcloud auth print-identity-token` cannot mint one from a
+          # workload-identity-federated credential. Without it the readiness
+          # probe below gets a 403 from Cloud Run and reports `unknown`.
+          token_format: id_token
+          id_token_audience: ${{ vars.PREP_AUTH_AUDIENCE }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -148,15 +155,13 @@ jobs:
       # red deploy here never blocks the thing that makes it green.
       - name: Verify the configuration database has a schema
         run: |
-          URL=$(gcloud run services describe agent-middleware             --project="${{ vars.PREP_PROJECT_ID }}"             --region="${{ vars.PREP_REGION || 'us-central1' }}"             --format='value(status.url)')
           # A probe that cannot be MADE must not fail the deploy -- the same
-          # rule the endpoint itself follows. Cloud Run IAM wants the service
-          # URL as the token audience; without `--audiences` the token is for
-          # the wrong one, the fetch 403s, and `curl -sf` under `bash -e` takes
-          # the step down. That is exactly how the first version of this step
-          # turned a healthy prep deploy red.
-          TOKEN=$(gcloud auth print-identity-token --audiences="$URL" 2>/dev/null || true)
-          BODY=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$URL/health/ready" || true)
+          # rule the endpoint itself follows. The first version of this step
+          # used `curl -sf` under `bash -e`, so a 403 killed it inside a
+          # command substitution and took a healthy prep deploy red without
+          # ever printing which state it saw.
+          URL="${{ vars.PREP_AUTH_AUDIENCE }}"
+          BODY=$(curl -s --max-time 20 -H "Authorization: Bearer ${{ steps.auth.outputs.id_token }}" "$URL/health/ready" || true)
           STATE=$(printf '%s' "$BODY" | python3 -c "import json,sys;print(json.load(sys.stdin).get('config_database','unknown'))" 2>/dev/null || echo unknown)
           echo "config_database=$STATE"
           if [ "$STATE" = "unknown" ]; then
