@@ -848,6 +848,8 @@ async def test_repeated_edits_become_a_voice_lesson_and_a_post_becomes_a_like(
     assert preferences_file is not None
     projected = [note["lesson"] for note in preferences_file["data"]["voiceNotes"]]
     assert 'Takes "leverage" out: removed in 3 edits and never published once.' in projected
+
+
 # --- N4: the sequence (SCRUM-487) ----------------------------------------------------
 
 
@@ -920,3 +922,52 @@ async def test_a_client_with_no_map_gets_null_rather_than_empty_slots(api: Async
     # Every client between setup and their first run is here. Empty slots would
     # read as "we have nothing to say"; null says nobody has built a map yet.
     assert (await api.get(f"/clients/{SLUG}/learning/reddit/sequence")).json() is None
+
+
+async def test_format_preferences_reach_the_projected_preferences_doc(
+    api: AsyncClient, fake_workspace: FakeWorkspaceStore
+) -> None:
+    """0008 (2026-09-23): a person sets a client's post types; the run reads them.
+
+    The owner: Geektime posts news flashes, Deel's feed is photo-led, and those
+    are facts about the client that belong in the feedback loop.
+    """
+
+    put = await api.put(
+        f"/clients/{SLUG}/learning/preferences",
+        json={
+            "formats": {
+                "instagram": {
+                    "postModes": ["news_flash"],
+                    "format": "single",
+                    "pictureDensity": "photo-first",
+                }
+            }
+        },
+    )
+    assert put.status_code == 200, put.text
+    assert put.json()["formats"] == {
+        "instagram": {
+            "postModes": ["news_flash"],
+            "format": "single",
+            "pictureDensity": "photo-first",
+        }
+    }
+
+    # The human half set earlier survives a formats-only write, and vice versa.
+    again = await api.put(
+        f"/clients/{SLUG}/learning/preferences", json={"neverTopics": ["layoffs"]}
+    )
+    assert again.json()["formats"]["instagram"]["format"] == "single"
+    assert again.json()["neverTopics"] == ["layoffs"]
+
+    doc = _read(fake_workspace, f"{LEARNING}/preferences.json")
+    assert doc is not None
+    assert doc["data"]["formats"]["instagram"]["postModes"] == ["news_flash"]
+
+    # An unknown value is refused at the door, not stored and guessed at later.
+    bad = await api.put(
+        f"/clients/{SLUG}/learning/preferences",
+        json={"formats": {"instagram": {"pictureDensity": "all-photos"}}},
+    )
+    assert bad.status_code == 422

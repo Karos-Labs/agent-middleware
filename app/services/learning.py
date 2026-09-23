@@ -411,6 +411,7 @@ class LearningService:
             or prefs["standingInstructions"]
             or prefs["voiceNotes"]
             or prefs["likes"]
+            or prefs.get("formats")
         ):
             write(PREFERENCES_KIND, prefs, per_platform=False, rows=None)
         else:

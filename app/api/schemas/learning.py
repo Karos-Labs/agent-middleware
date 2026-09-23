@@ -107,10 +107,33 @@ class FeedbackEventRead(BaseModel):
     reprojected: int
 
 
+class FormatPreference(BaseModel):
+    """One platform's post-type preference (0008). Every field optional."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    format: Literal["carousel", "single", "auto"] | None = None
+    post_modes: list[Literal["news_flash"]] | None = Field(
+        default=None, alias="postModes", max_length=4
+    )
+    picture_density: Literal["standard", "photo-first"] | None = Field(
+        default=None, alias="pictureDensity"
+    )
+    series: str | None = Field(default=None, max_length=40, pattern=r"^[a-z_]+$")
+
+
 class PreferencesWrite(BaseModel):
     """Body of ``PUT /clients/{slug}/learning/preferences`` -- the human half."""
 
     model_config = ConfigDict(populate_by_name=True)
+
+    formats: dict[Platform, FormatPreference] | None = Field(
+        default=None,
+        description=(
+            "Per-platform post-type preferences (2026-09-23). "
+            "Replaces the stored map when given."
+        ),
+    )
 
     never_topics: list[str] | None = Field(default=None, alias="neverTopics", max_length=200)
     standing_instructions: list[str] | None = Field(
