@@ -1508,6 +1508,10 @@
       "kind": "code"
     },
     {
+      "id": "09b-read-previous-run",
+      "kind": "code"
+    },
+    {
       "id": "10-connector-overlay",
       "kind": "code"
     },
@@ -1532,7 +1536,7 @@
     {
       "id": "14-draft-narrative",
       "kind": "agent",
-      "skill_ref": "seo-geo-narrative@3",
+      "skill_ref": "seo-geo-narrative@4",
       "agent_id": "seo-geo-narrative",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
@@ -1544,7 +1548,7 @@
     {
       "id": "14z-regenerate-narrative",
       "kind": "agent",
-      "skill_ref": "seo-geo-narrative@3",
+      "skill_ref": "seo-geo-narrative@4",
       "agent_id": "seo-geo-narrative",
       "default_model": "claude-sonnet-4-6",
       "vendor": "anthropic"
