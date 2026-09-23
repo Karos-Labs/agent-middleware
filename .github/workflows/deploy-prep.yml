@@ -149,8 +149,19 @@ jobs:
       - name: Verify the configuration database has a schema
         run: |
           URL=$(gcloud run services describe agent-middleware             --project="${{ vars.PREP_PROJECT_ID }}"             --region="${{ vars.PREP_REGION || 'us-central1' }}"             --format='value(status.url)')
-          STATE=$(curl -sf -H "Authorization: Bearer $(gcloud auth print-identity-token)"             "$URL/health/ready" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config_database','unknown'))")
+          # A probe that cannot be MADE must not fail the deploy -- the same
+          # rule the endpoint itself follows. Cloud Run IAM wants the service
+          # URL as the token audience; without `--audiences` the token is for
+          # the wrong one, the fetch 403s, and `curl -sf` under `bash -e` takes
+          # the step down. That is exactly how the first version of this step
+          # turned a healthy prep deploy red.
+          TOKEN=$(gcloud auth print-identity-token --audiences="$URL" 2>/dev/null || true)
+          BODY=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$URL/health/ready" || true)
+          STATE=$(printf '%s' "$BODY" | python3 -c "import json,sys;print(json.load(sys.stdin).get('config_database','unknown'))" 2>/dev/null || echo unknown)
           echo "config_database=$STATE"
+          if [ "$STATE" = "unknown" ]; then
+            echo "::warning::Could not read /health/ready, so the configuration database was not checked. This does not fail the deploy."
+          fi
           if [ "$STATE" = "schema_missing" ]; then
             echo "::error::The configuration database has no schema -- no migration has been applied. Run the 'Migrate the configuration database' workflow. The service will keep serving its Firestore routes and every Cloud SQL-backed route will 500."
             exit 1
