@@ -10,6 +10,7 @@ the one place the two spellings meet is this module.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -358,8 +359,9 @@ class LearningStore:
         never_topics: list[str] | None,
         standing_instructions: list[str] | None,
         updated_by: str | None,
+        formats: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """The two fields a person sets. Derived fields are left alone."""
+        """The fields a person sets. Derived fields are left alone."""
 
         await self._db.execute(
             """
@@ -377,6 +379,15 @@ class LearningStore:
             standing_instructions,
             updated_by,
         )
+        if formats is not None:
+            # Its own statement, so a database that has not taken 0008 yet
+            # still accepts every write that does not carry `formats`.
+            await self._db.execute(
+                "update client_preferences set format_preferences = $2::jsonb"
+                " where client_slug = $1",
+                client_slug,
+                formats,
+            )
         prefs = await self.preferences(client_slug)
         assert prefs is not None
         return prefs
@@ -743,9 +754,7 @@ class LearningStore:
             for r in rows
         ]
 
-    async def put_craft_rules(
-        self, rules: list[dict[str, Any]], *, updated_by: str | None
-    ) -> int:
+    async def put_craft_rules(self, rules: list[dict[str, Any]], *, updated_by: str | None) -> int:
         async with self._db.transaction() as connection:
             for rule in rules:
                 await connection.execute(
@@ -820,9 +829,7 @@ class LearningStore:
         return True
 
     async def run_record(self, run_id: str) -> dict[str, Any] | None:
-        row = await self._db.fetchrow(
-            "select * from run_state_records where run_id = $1", run_id
-        )
+        row = await self._db.fetchrow("select * from run_state_records where run_id = $1", run_id)
         if row is None:
             return None
         return {
@@ -890,7 +897,19 @@ def _preferences_row(r: asyncpg.Record) -> dict[str, Any]:
         "voiceNotes": r["voice_notes"] if isinstance(r["voice_notes"], list) else [],
         "derivedAt": _iso(r["derived_at"]),
         "derivedFromCount": r["derived_from_count"],
+        # 0008. Read defensively: a row from a database without the column,
+        # or a value the codec returned as text, is simply no preference.
+        "formats": _formats_of(dict(r).get("format_preferences")),
     }
+
+
+def _formats_of(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _text_or_none(value: Any) -> str | None:

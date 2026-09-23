@@ -105,7 +105,7 @@ steps:
 
         FILES="0001_config_plane 0002_reference_data 0003_model_catalog \
                0004_prompt_projection 0005_stage_source 0006_run_feedback \
-               0007_learning_loop 0001_config_plane_verify"
+               0007_learning_loop 0008_format_preferences 0001_config_plane_verify"
 
         for f in $$FILES; do
           echo "=== applying migrations/$$f.sql"

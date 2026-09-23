@@ -126,10 +126,18 @@ async def write_preferences(
         never_topics=body.never_topics,
         standing_instructions=body.standing_instructions,
         updated_by=body.updated_by,
+        formats=(
+            {
+                platform: pref.model_dump(by_alias=True, exclude_none=True)
+                for platform, pref in body.formats.items()
+            }
+            if body.formats is not None
+            else None
+        ),
     )
     if service.can_project:
         # Preferences are client-wide; every platform's next run should see them.
-        for platform in ("x", "linkedin", "reddit"):
+        for platform in ("x", "linkedin", "reddit", "instagram"):
             await service.project(client_slug, platform, projected_by="middleware-preferences")
     return prefs
 
