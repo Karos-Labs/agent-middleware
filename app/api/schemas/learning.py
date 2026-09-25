@@ -142,6 +142,17 @@ class PreferencesWrite(BaseModel):
     updated_by: str | None = Field(default=None, alias="updatedBy", max_length=255)
 
 
+class LessonRetire(BaseModel):
+    """Body of ``POST /clients/{slug}/learning/preferences/lessons/{retire,restore}``."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    lesson: str = Field(
+        min_length=1, max_length=4000, description="The lesson, in the words shown."
+    )
+    updated_by: str | None = Field(default=None, alias="updatedBy", max_length=255)
+
+
 class SettingsWrite(BaseModel):
     """Body of ``PUT /clients/{slug}/learning/{platform}/settings``."""
 

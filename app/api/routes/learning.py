@@ -32,6 +32,7 @@ from app.api.schemas.learning import (
     FileOutcomeRead,
     LearningContextRead,
     LearningProjectionRead,
+    LessonRetire,
     Platform,
     PreferencesWrite,
     SettingsWrite,
@@ -42,6 +43,7 @@ from app.core.roles import Role
 from app.dependencies import get_learning_service
 from app.security import require_role
 from app.services.learning import SEQUENCE_SLOTS, LearningService
+from app.services.learning_store import PLATFORMS
 
 router = APIRouter(prefix="/clients/{client_slug}/learning", tags=["learning loop"])
 run_router = APIRouter(prefix="/runs", tags=["learning loop"])
@@ -140,6 +142,53 @@ async def write_preferences(
         for platform in ("x", "linkedin", "reddit", "instagram"):
             await service.project(client_slug, platform, projected_by="middleware-preferences")
     return prefs
+
+
+async def _set_lesson_retired(
+    client_slug: str, body: LessonRetire, service: LearningService, *, retired: bool
+) -> dict[str, Any]:
+    try:
+        prefs = await service.store.set_lesson_retired(
+            client_slug, body.lesson, retired=retired, updated_by=body.updated_by
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    if service.can_project:
+        # The preferences file is client-wide: every platform's next run reads
+        # the list with the lesson taken out (or put back).
+        for platform in PLATFORMS:
+            await service.project(client_slug, platform, projected_by="middleware-preferences")
+    return prefs
+
+
+@router.post(
+    "/preferences/lessons/retire",
+    response_model=dict[str, Any],
+    summary="Retire one derived voice lesson, so no later derivation brings it back",
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def retire_lesson(
+    client_slug: SlugStr,
+    body: LessonRetire,
+    service: LearningService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    return await _set_lesson_retired(client_slug, body, service, retired=True)
+
+
+@router.post(
+    "/preferences/lessons/restore",
+    response_model=dict[str, Any],
+    summary="Restore a retired voice lesson",
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def restore_lesson(
+    client_slug: SlugStr,
+    body: LessonRetire,
+    service: LearningService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    return await _set_lesson_retired(client_slug, body, service, retired=False)
 
 
 # --- What the next run reads ------------------------------------------------

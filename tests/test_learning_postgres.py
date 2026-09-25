@@ -525,9 +525,9 @@ async def test_collect_lands_the_record_the_subject_row_and_the_platform_state(
         prefs_response.status_code,
         prefs_response.text,
     )
-    assert prefs["voiceNotes"] == [{"lesson": "cut the second adjective", "fromRunId": run_id}], (
-        prefs
-    )
+    assert prefs["voiceNotes"] == [
+        {"lesson": "cut the second adjective", "fromRunId": run_id, "source": "review"}
+    ], prefs
 
     # The record is kept verbatim.
     stored = await config_database.fetchrow(
@@ -986,3 +986,65 @@ async def test_format_preferences_reach_the_projected_preferences_doc(
         json={"formats": {"instagram": {"pictureDensity": "all-photos"}}},
     )
     assert bad.status_code == 422
+
+
+async def test_a_retired_lesson_stays_out_until_it_is_restored(api: AsyncClient) -> None:
+    """0009: every note becomes a standing lesson, including one that was only
+    true of one post. A person retires it; the log would derive it straight
+    back on the next event, so the derivation itself leaves it out."""
+
+    for reason, action in (
+        ("never open with a question", "note"),
+        ("less jargon on slide one", "change_requested"),
+    ):
+        posted = await api.post(
+            f"/clients/{SLUG}/learning/feedback",
+            json={"platform": "instagram", "action": action, "reason": reason},
+        )
+        assert posted.status_code == 201, posted.text
+
+    prefs = (await api.get(f"/clients/{SLUG}/learning/preferences")).json()
+    by_lesson = {n["lesson"]: n for n in prefs["voiceNotes"]}
+    assert by_lesson["never open with a question"]["source"] == "note"
+    assert by_lesson["less jargon on slide one"]["source"] == "change_request"
+    assert prefs["retiredLessons"] == []
+
+    retired = await api.post(
+        f"/clients/{SLUG}/learning/preferences/lessons/retire",
+        json={"lesson": "Less  jargon on SLIDE one", "updatedBy": "jane@karoslabs.com"},
+    )
+    assert retired.status_code == 200, retired.text
+    body = retired.json()
+    assert "less jargon on slide one" not in {n["lesson"] for n in body["voiceNotes"]}
+    assert "never open with a question" in {n["lesson"] for n in body["voiceNotes"]}
+    assert body["retiredLessons"] == ["Less jargon on SLIDE one"]
+
+    # The next feedback event re-derives from the whole log; it stays out.
+    again = await api.post(
+        f"/clients/{SLUG}/learning/feedback",
+        json={"platform": "instagram", "action": "skipped", "reason": "off-brand"},
+    )
+    assert again.status_code == 201
+    prefs = (await api.get(f"/clients/{SLUG}/learning/preferences")).json()
+    assert "less jargon on slide one" not in {n["lesson"] for n in prefs["voiceNotes"]}
+
+    # Retiring twice keeps one entry; restoring matches on the sentence.
+    await api.post(
+        f"/clients/{SLUG}/learning/preferences/lessons/retire",
+        json={"lesson": "less jargon on slide one"},
+    )
+    prefs = (await api.get(f"/clients/{SLUG}/learning/preferences")).json()
+    assert len(prefs["retiredLessons"]) == 1
+
+    restored = await api.post(
+        f"/clients/{SLUG}/learning/preferences/lessons/restore",
+        json={"lesson": "LESS JARGON ON SLIDE ONE"},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["retiredLessons"] == []
+    assert "less jargon on slide one" in {n["lesson"] for n in restored.json()["voiceNotes"]}
+
+    blank = await api.post(
+        f"/clients/{SLUG}/learning/preferences/lessons/retire", json={"lesson": "   "}
+    )
+    assert blank.status_code == 422
