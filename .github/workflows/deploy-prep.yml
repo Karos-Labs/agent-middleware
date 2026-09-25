@@ -52,8 +52,20 @@ jobs:
           # trace about lifespan context managers.
           printf '%s' "$ALLOWED" | python3 -c 'import json,sys; p=json.load(sys.stdin); assert isinstance(p,list) and all(isinstance(x,str) for x in p)' \
             || { echo "::error::PREP_AUTH_ALLOWED_SERVICE_ACCOUNTS must be a JSON array of strings, got: ${ALLOWED}"; exit 1; }
+          # SCRUM-509. The same check for the role bindings, which were set on
+          # 2026-09-23 as '{sa:admin}' (the shell ate the inner quotes) and
+          # still reached the service as '{}': every verified caller admin,
+          # while the variable made it look closed. A malformed value now stops
+          # the deploy; an empty one is allowed (it is the documented "not
+          # configured" state) but is shouted about, because it means admin for all.
+          printf '%s' "$BINDINGS" | python3 -c 'import json,sys; p=json.load(sys.stdin); assert isinstance(p,dict) and all(isinstance(k,str) and "@" in k and v in ("viewer","editor","admin") for k,v in p.items())' \
+            || { echo "::error::PREP_AUTH_ROLE_BINDINGS must be a JSON object of {\"service-account-email\": \"viewer|editor|admin\"}, got: ${BINDINGS}"; exit 1; }
+          if [ "$BINDINGS" = "{}" ]; then
+            echo "::warning::PREP_AUTH_ROLE_BINDINGS is empty in this repo's variables: every verified caller will be ADMIN. Set it on agent-middleware (not karos-portal)."
+          fi
         env:
           ALLOWED: ${{ vars.PREP_AUTH_ALLOWED_SERVICE_ACCOUNTS || '[]' }}
+          BINDINGS: ${{ vars.PREP_AUTH_ROLE_BINDINGS || '{}' }}
           PREP_PROJECT_ID: ${{ vars.PREP_PROJECT_ID }}
           PREP_SERVICE_ACCOUNT: ${{ vars.PREP_SERVICE_ACCOUNT }}
           PREP_FIRESTORE_PROJECT_ID: ${{ vars.PREP_FIRESTORE_PROJECT_ID }}
