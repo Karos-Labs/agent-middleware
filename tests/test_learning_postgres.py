@@ -696,6 +696,21 @@ async def test_feedback_moves_the_subject_row_and_reaches_the_next_projection(
     }
     assert prefs["derivedFromCount"] == 3
 
+    # A change request says, in words, what the draft should have been: it is
+    # a stated lesson like a note, and it outlives the draft it was sent on.
+    asked = await api.post(
+        f"/clients/{SLUG}/learning/feedback",
+        json={
+            "platform": "instagram",
+            "action": "change_requested",
+            "reason": "less jargon on slide one",
+        },
+    )
+    assert asked.status_code == 201, asked.text
+    prefs = (await api.get(f"/clients/{SLUG}/learning/preferences")).json()
+    assert "less jargon on slide one" in {n["lesson"] for n in prefs["voiceNotes"]}
+    assert prefs["derivedFromCount"] == 4
+
     # The database, not the code, refuses to rewrite history.
     with pytest.raises(asyncpg.PostgresError):
         await config_database.execute(

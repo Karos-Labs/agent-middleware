@@ -399,8 +399,8 @@ class LearningStore:
 
         Voice notes come from four places now (B2, SCRUM-494). Two are STATED --
         the review-cycle notes a run recorded (``voiceNotes`` on its C7 record)
-        and ``note`` actions in the feedback log -- and two are COUNTED, which
-        is what this ticket was missing:
+        and ``note`` / ``change_requested`` reasons in the feedback log -- and
+        two are COUNTED, which is what this ticket was missing:
 
         * words the client removes from draft after draft and never publishes
         * a consistent direction of length change across several edits
@@ -419,10 +419,17 @@ class LearningStore:
         endorsement the log actually contains.
         """
 
+        # A ``change_requested`` reason is STATED, like a note: a person wrote,
+        # in words, what the draft should have been. Counting it the way skip
+        # reasons are counted (the same sentence twice) would almost never fire
+        # on free text, and the same sentence typed at the engine's review gate
+        # has become a voice note through the run record since C7 -- so a
+        # request sent from a draft was the one place it was forgotten.
         note_rows = await connection.fetch(
             """
             select run_id, reason, at from client_feedback_log
-             where client_slug = $1 and action = 'note' and reason is not null
+             where client_slug = $1 and action in ('note', 'change_requested')
+               and reason is not null
              order by at desc limit 50
             """,
             client_slug,
