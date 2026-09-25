@@ -17,6 +17,7 @@ has not arrived. `config.schema_migrations` records what has been applied.
 | `0006_run_feedback.sql` | `run_feedback` — a reviewer's verdict on a run, joinable to the prompt version it criticised (S11) | Yes |
 | `0007_learning_loop.sql` | The learning loop's stores (O09, C7): `subject_rows`, `client_feedback_log` (append-only), `client_preferences`, `platform_state`, `strategy_maps` + `strategy_map_rows`, `craft_rules`, `run_state_records`, `learning_settings` | Yes |
 | `0008_format_preferences.sql` | `client_preferences.format_preferences` — per-platform post-type preferences a person sets, projected as `formats` | Yes |
+| `0009_retired_lessons.sql` | `client_preferences.retired_lessons` — derived voice lessons a person retired; the derivation leaves them out | Yes |
 | `0001_config_plane_verify.sql` | Attempts every write the schema must refuse | Yes — ends in `ROLLBACK` |
 
 **Apply them in filename order, and run the verify script last.** It is
@@ -29,7 +30,7 @@ second.
 # prep — in this order, verify last
 for f in 0001_config_plane 0002_reference_data 0003_model_catalog \
          0004_prompt_projection 0005_stage_source 0006_run_feedback \
-         0007_learning_loop 0008_format_preferences \
+         0007_learning_loop 0008_format_preferences 0009_retired_lessons \
          0001_config_plane_verify; do
   psql "$PREP_DATABASE_URL" -v ON_ERROR_STOP=1 -f "migrations/$f.sql" || break
 done

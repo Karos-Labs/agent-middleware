@@ -392,6 +392,41 @@ class LearningStore:
         assert prefs is not None
         return prefs
 
+    async def set_lesson_retired(
+        self, client_slug: str, lesson: str, *, retired: bool, updated_by: str | None
+    ) -> dict[str, Any]:
+        """Retire (or restore) one derived voice lesson, then re-derive.
+
+        Stored in the words it was shown in; matched on ``lesson_key``, so a
+        restore with different spacing or case still finds it. One transaction,
+        so the list and the derived voice notes never disagree.
+        """
+
+        text = " ".join(lesson.split())
+        if not text:
+            raise ValueError("a lesson to retire cannot be blank")
+        key = lesson_key(text)
+        async with self._db.transaction() as connection:
+            await connection.execute(
+                "insert into client_preferences (client_slug) values ($1)"
+                " on conflict (client_slug) do nothing",
+                client_slug,
+            )
+            current = await connection.fetchval(
+                "select retired_lessons from client_preferences where client_slug = $1",
+                client_slug,
+            )
+            kept = [t for t in (current or []) if lesson_key(t) != key]
+            updated = [*kept, text][-MAX_RETIRED_LESSONS:] if retired else kept
+            await connection.execute(
+                "update client_preferences set retired_lessons = $2::text[], updated_by = $3"
+                " where client_slug = $1",
+                client_slug,
+                updated,
+                updated_by,
+            )
+            return await self.derive_preferences(connection, client_slug)
+
     async def derive_preferences(
         self, connection: asyncpg.Connection, client_slug: str
     ) -> dict[str, Any]:
@@ -427,7 +462,7 @@ class LearningStore:
         # request sent from a draft was the one place it was forgotten.
         note_rows = await connection.fetch(
             """
-            select run_id, reason, at from client_feedback_log
+            select run_id, reason, action, at from client_feedback_log
              where client_slug = $1 and action in ('note', 'change_requested')
                and reason is not null
              order by at desc limit 50
@@ -448,14 +483,18 @@ class LearningStore:
         voice: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        def add(lesson: Any, run_id: Any) -> None:
+        # Where each stated lesson came from, so the person reviewing the list
+        # (the staff lessons panel) can tell a reviewer's note at the gate from
+        # a note the client typed. The counted lessons carry their own
+        # ``source`` ("edits", "skips") from voice_lessons.py.
+        def add(lesson: Any, run_id: Any, source: str) -> None:
             if not isinstance(lesson, str) or not lesson.strip():
                 return
             key = lesson.strip().lower()
             if key in seen:
                 return
             seen.add(key)
-            voice.append(_clean({"lesson": lesson.strip(), "fromRunId": run_id}))
+            voice.append(_clean({"lesson": lesson.strip(), "fromRunId": run_id, "source": source}))
 
         for row in record_rows:
             record = row["record"] if isinstance(row["record"], dict) else {}
@@ -463,9 +502,13 @@ class LearningStore:
             if isinstance(notes, list):
                 for note in notes:
                     if isinstance(note, dict):
-                        add(note.get("lesson"), row["run_id"])
+                        add(note.get("lesson"), row["run_id"], "review")
         for row in note_rows:
-            add(row["reason"], row["run_id"])
+            add(
+                row["reason"],
+                row["run_id"],
+                "change_request" if row["action"] == "change_requested" else "note",
+            )
 
         # The counted half. Each query is bounded and ordered newest-first: a
         # client with three years of history derives from their recent voice,
@@ -508,6 +551,21 @@ class LearningStore:
             edit_pairs=[(r["original_text"], r["final_text"]) for r in edit_rows],
             skip_reasons=[r["reason"] for r in skip_rows],
         )
+        # 0009: a lesson a person retired stays out, however often the log
+        # would derive it again. Read defensively, so a database that has not
+        # taken 0009 yet derives exactly as before.
+        retired_row = await connection.fetchrow(
+            "select to_jsonb(p) -> 'retired_lessons' as retired"
+            " from client_preferences p where client_slug = $1",
+            client_slug,
+        )
+        retired = _retired_keys(retired_row["retired"] if retired_row is not None else None)
+        if retired:
+            derived_voice = [
+                lesson
+                for lesson in derived_voice
+                if lesson_key(str(lesson.get("lesson", ""))) not in retired
+            ]
         likes = likes_from_posts(
             [
                 {"runId": r["run_id"], "subject": r["subject"], "at": _iso(r["at"])}
@@ -907,7 +965,31 @@ def _preferences_row(r: asyncpg.Record) -> dict[str, Any]:
         # 0008. Read defensively: a row from a database without the column,
         # or a value the codec returned as text, is simply no preference.
         "formats": _formats_of(dict(r).get("format_preferences")),
+        # 0009, read the same defensive way.
+        "retiredLessons": [t for t in (dict(r).get("retired_lessons") or []) if isinstance(t, str)],
     }
+
+
+#: The most retired lessons a client keeps. Far above the 24 lessons a client
+#: can hold at once, so it never bites in practice; it only bounds the column.
+MAX_RETIRED_LESSONS = 500
+
+
+def lesson_key(text: str) -> str:
+    """A lesson as retirement matches it: spacing collapsed, case folded."""
+
+    return " ".join(text.split()).casefold()
+
+
+def _retired_keys(value: Any) -> set[str]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return set()
+    if not isinstance(value, list):
+        return set()
+    return {lesson_key(t) for t in value if isinstance(t, str) and t.strip()}
 
 
 def _formats_of(value: Any) -> dict[str, Any]:
